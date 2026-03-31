@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Detection Stats</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      header {
+        padding: 16px 20px;
+        border-bottom: 1px solid #1e293b;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(300px, 1fr));
+        gap: 12px;
+        padding: 16px;
+      }
+      .card {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .camera-title {
+        padding: 8px 12px;
+        font-weight: 700;
+        border-bottom: 1px solid #1f2937;
+      }
+      .camera-image {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        display: block;
+        background: #020617;
+      }
+      .camera-meta {
+        padding: 10px 12px;
+        font-size: 14px;
+        color: #cbd5e1;
+      }
+      .panel {
+        padding: 16px;
+      }
+      .stats {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .pill {
+        background: #1e293b;
+        padding: 10px 12px;
+        border-radius: 8px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      th, td {
+        border-bottom: 1px solid #1f2937;
+        padding: 8px;
+        text-align: left;
+        font-size: 13px;
+      }
+      .ok { color: #22c55e; }
+      .bad { color: #ef4444; }
+      @media (max-width: 900px) {
+        .grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h2 style="margin: 0 0 6px 0">DetectionStats Dashboard</h2>
+      <div id="redisState">Redis: ...</div>
+      <div id="updatedAt" style="font-size: 12px; color: #94a3b8"></div>
+    </header>
+
+    <div class="panel">
+      <h3>Статистика Signal</h3>
+      <div class="stats">
+        <div class="pill">Срабатываний всего: <strong id="totalTriggers">0</strong></div>
+        <div class="pill">Последнее: <strong id="lastTrigger">—</strong></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      {% for cam in cams %}
+      <div class="card">
+        <div class="camera-title">{{ cam }}</div>
+        <img class="camera-image" id="img-{{ cam }}" src="/api/camera/{{ cam }}.jpg" alt="{{ cam }}" />
+        <div class="camera-meta">
+          Людей: <span id="{{ cam }}_count">0</span> · Инв. коляски:
+          <span id="{{ cam }}_wheelchair_cnt">0</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="panel">
+      <h3>Последние срабатывания</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Время UTC</th>
+            <th>Signal</th>
+            <th>Cam1_count</th>
+            <th>Cam1_wheelchair_cnt</th>
+          </tr>
+        </thead>
+        <tbody id="eventsBody"></tbody>
+      </table>
+    </div>
+
+    <script>
+      const cams = ["Cam1", "Cam2", "Cam3", "Cam4"];
+
+      async function refreshStatus() {
+        const response = await fetch('/api/status');
+        const data = await response.json();
+
+        document.getElementById('redisState').innerHTML = data.redis.redis_ok
+          ? '<span class="ok">Redis: подключен</span>'
+          : '<span class="bad">Redis: нет подключения</span>';
+
+        document.getElementById('updatedAt').textContent =
+          'Обновлено: ' + new Date(data.timestamp_utc).toLocaleString();
+
+        document.getElementById('totalTriggers').textContent = data.stats.total_triggers;
+        document.getElementById('lastTrigger').textContent = data.stats.last_trigger_utc
+          ? new Date(data.stats.last_trigger_utc).toLocaleString()
+          : '—';
+
+        for (const cam of cams) {
+          document.getElementById(`${cam}_count`).textContent = data.redis.values[`${cam}_count`] ?? 0;
+          document.getElementById(`${cam}_wheelchair_cnt`).textContent =
+            data.redis.values[`${cam}_wheelchair_cnt`] ?? 0;
+
+          const img = document.getElementById(`img-${cam}`);
+          img.src = `/api/camera/${cam}.jpg?t=${Date.now()}`;
+        }
+      }
+
+      async function refreshEvents() {
+        const response = await fetch('/api/events?limit=20');
+        const data = await response.json();
+        const body = document.getElementById('eventsBody');
+        body.innerHTML = '';
+
+        for (const event of data.events) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${event.id}</td>
+            <td>${new Date(event.ts_utc).toLocaleString()}</td>
+            <td>${event.signal_value}</td>
+            <td>${event.payload.Cam1_count ?? 0}</td>
+            <td>${event.payload.Cam1_wheelchair_cnt ?? 0}</td>
+          `;
+          body.appendChild(tr);
+        }
+      }
+
+      async function tick() {
+        try {
+          await Promise.all([refreshStatus(), refreshEvents()]);
+        } catch (e) {
+          console.error('Refresh error', e);
+        }
+      }
+
+      tick();
+      setInterval(tick, 2000);
+    </script>
+  </body>
+</html>
