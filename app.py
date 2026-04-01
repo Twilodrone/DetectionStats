@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import redis
-from flask import Flask, Response, jsonify, render_template, send_file
+from flask import Flask, Response, jsonify, redirect, render_template, send_file, url_for
 
 
 REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
@@ -183,6 +183,12 @@ app = Flask(__name__)
 @app.route("/")
 def index() -> str:
     return render_template("index.html", cams=CAM_KEYS)
+
+
+@app.route("/cgi-bin/luci")
+@app.route("/cgi-bin/luci/")
+def luci_compat_redirect() -> Response:
+    return redirect(url_for("index"), code=302)
 
 
 @app.route("/api/status")
