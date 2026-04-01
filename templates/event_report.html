@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Срабатывание #{{ event.id }}</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      .container {
+        padding: 16px;
+      }
+      a {
+        color: #60a5fa;
+        text-decoration: none;
+      }
+      .summary {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0 16px 0;
+      }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(200px, 1fr));
+        gap: 8px;
+      }
+      .card {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(300px, 1fr));
+        gap: 12px;
+      }
+      .camera-title {
+        padding: 8px 12px;
+        font-weight: 700;
+        border-bottom: 1px solid #1f2937;
+      }
+      .camera-image {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        display: block;
+        background: #020617;
+      }
+      .camera-meta {
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+      @media (max-width: 900px) {
+        .grid { grid-template-columns: 1fr; }
+        .summary-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2 style="margin: 0;">Отчет по срабатыванию #{{ event.id }}</h2>
+      <div style="margin-top: 8px;"><a href="/">← Назад к списку</a></div>
+
+      <div class="summary">
+        <div><strong>Время UTC:</strong> {{ event.ts_utc }}</div>
+        <div><strong>Signal:</strong> {{ event.signal_value }}</div>
+      </div>
+
+      <div class="summary-grid">
+        {% for cam in cams %}
+        <div class="summary">
+          <div><strong>{{ cam }}</strong></div>
+          <div>Людей: {{ event.payload[cam ~ '_count'] if (cam ~ '_count') in event.payload else 0 }}</div>
+          <div>Инв. коляски: {{ event.payload[cam ~ '_wheelchair_cnt'] if (cam ~ '_wheelchair_cnt') in event.payload else 0 }}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="grid">
+        {% for cam in cams %}
+        <div class="card">
+          <div class="camera-title">{{ cam }}</div>
+          <img class="camera-image" src="/api/events/{{ event.id }}/camera/{{ cam }}.jpg" alt="{{ cam }}" />
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </body>
+</html>

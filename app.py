@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sqlite3
 import threading
 import time
@@ -17,6 +18,7 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", "2"))
 DB_PATH = os.getenv("DB_PATH", "signal_events.db")
 CAMERA_PICTURES_DIR = Path(os.getenv("CAMERA_PICTURES_DIR", "/home/sdp/Detector/pictures"))
+EVENT_ARCHIVE_DIR = Path(os.getenv("EVENT_ARCHIVE_DIR", "./event_archive"))
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 
@@ -69,14 +71,15 @@ class SignalRepository:
             )
             conn.commit()
 
-    def add_event(self, payload: dict[str, Any], signal_value: int) -> None:
+    def add_event(self, payload: dict[str, Any], signal_value: int) -> int:
         with self._lock:
             with self._connect() as conn:
-                conn.execute(
+                cur = conn.execute(
                     "INSERT INTO signal_events(ts_utc, signal_value, payload_json) VALUES (?, ?, ?)",
                     (utc_now_iso(), signal_value, json.dumps(payload, ensure_ascii=False)),
                 )
                 conn.commit()
+                return int(cur.lastrowid)
 
     def get_recent_events(self, limit: int = 50) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 500))
@@ -103,6 +106,28 @@ class SignalRepository:
                 }
             )
         return events
+
+    def get_event_by_id(self, event_id: int) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, ts_utc, signal_value, payload_json
+                FROM signal_events
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (event_id,),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "id": row["id"],
+            "ts_utc": row["ts_utc"],
+            "signal_value": row["signal_value"],
+            "payload": json.loads(row["payload_json"]),
+        }
 
     def get_stats(self) -> dict[str, Any]:
         with self._connect() as conn:
@@ -155,6 +180,16 @@ class RedisWatcher:
                 values[key] = 0
         return values
 
+    def _archive_event_images(self, event_id: int) -> None:
+        event_dir = EVENT_ARCHIVE_DIR / f"event_{event_id}"
+        event_dir.mkdir(parents=True, exist_ok=True)
+
+        for cam_name in CAM_KEYS:
+            src = CAMERA_PICTURES_DIR / f"{cam_name}.jpg"
+            dst = event_dir / f"{cam_name}.jpg"
+            if src.exists():
+                shutil.copy2(src, dst)
+
     def _run(self) -> None:
         previous_signal = 0
         while not self._stop_event.is_set():
@@ -165,7 +200,8 @@ class RedisWatcher:
 
                 current_signal = values.get("Signal", 0)
                 if previous_signal == 0 and current_signal == 1:
-                    self.repo.add_event(payload=values, signal_value=current_signal)
+                    event_id = self.repo.add_event(payload=values, signal_value=current_signal)
+                    self._archive_event_images(event_id)
 
                 previous_signal = current_signal
             except redis.RedisError:
@@ -183,6 +219,15 @@ app = Flask(__name__)
 @app.route("/")
 def index() -> str:
     return render_template("index.html", cams=CAM_KEYS)
+
+
+@app.route("/events/<int:event_id>")
+def event_report(event_id: int):
+    event = repo.get_event_by_id(event_id)
+    if event is None:
+        return jsonify({"error": "Event not found"}), 404
+
+    return render_template("event_report.html", event=event, cams=CAM_KEYS)
 
 
 @app.route("/cgi-bin/luci")
@@ -212,12 +257,32 @@ def api_events() -> Response:
     return jsonify({"events": repo.get_recent_events(limit=limit)})
 
 
+@app.route("/api/events/<int:event_id>")
+def api_event_by_id(event_id: int) -> Response:
+    event = repo.get_event_by_id(event_id)
+    if event is None:
+        return jsonify({"error": "Event not found"}), 404
+    return jsonify(event)
+
+
 @app.route("/api/camera/<cam_name>.jpg")
 def camera_image(cam_name: str):
     if cam_name not in CAM_KEYS:
         return jsonify({"error": "Unknown camera"}), 404
 
     image_path = CAMERA_PICTURES_DIR / f"{cam_name}.jpg"
+    if not image_path.exists():
+        return jsonify({"error": f"Image not found: {image_path}"}), 404
+
+    return send_file(image_path, mimetype="image/jpeg", max_age=0)
+
+
+@app.route("/api/events/<int:event_id>/camera/<cam_name>.jpg")
+def archived_event_camera_image(event_id: int, cam_name: str):
+    if cam_name not in CAM_KEYS:
+        return jsonify({"error": "Unknown camera"}), 404
+
+    image_path = EVENT_ARCHIVE_DIR / f"event_{event_id}" / f"{cam_name}.jpg"
     if not image_path.exists():
         return jsonify({"error": f"Image not found: {image_path}"}), 404
 

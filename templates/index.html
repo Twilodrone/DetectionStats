@@ -15,6 +15,14 @@
         padding: 16px 20px;
         border-bottom: 1px solid #1e293b;
       }
+      .phase-status {
+        margin-top: 10px;
+        font-size: 34px;
+        font-weight: 800;
+        line-height: 1.2;
+      }
+      .phase-yes { color: #22c55e; }
+      .phase-no { color: #ef4444; }
       .grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(300px, 1fr));
@@ -68,6 +76,12 @@
         text-align: left;
         font-size: 13px;
       }
+      tbody tr {
+        cursor: pointer;
+      }
+      tbody tr:hover {
+        background: #1e293b;
+      }
       .ok { color: #22c55e; }
       .bad { color: #ef4444; }
       @media (max-width: 900px) {
@@ -80,6 +94,7 @@
       <h2 style="margin: 0 0 6px 0">DetectionStats Dashboard</h2>
       <div id="redisState">Redis: ...</div>
       <div id="updatedAt" style="font-size: 12px; color: #94a3b8"></div>
+      <div id="phaseStatus" class="phase-status phase-no">Удлиненная фаза: Нет</div>
     </header>
 
     <div class="panel">
@@ -138,6 +153,12 @@
           ? new Date(data.stats.last_trigger_utc).toLocaleString()
           : '—';
 
+        const signal = Number(data.redis.values.Signal ?? 0);
+        const phaseStatus = document.getElementById('phaseStatus');
+        const isExtended = signal === 1;
+        phaseStatus.textContent = `Удлиненная фаза: ${isExtended ? 'Да' : 'Нет'}`;
+        phaseStatus.className = `phase-status ${isExtended ? 'phase-yes' : 'phase-no'}`;
+
         for (const cam of cams) {
           document.getElementById(`${cam}_count`).textContent = data.redis.values[`${cam}_count`] ?? 0;
           document.getElementById(`${cam}_wheelchair_cnt`).textContent =
@@ -163,6 +184,9 @@
             <td>${event.payload.Cam1_count ?? 0}</td>
             <td>${event.payload.Cam1_wheelchair_cnt ?? 0}</td>
           `;
+          tr.addEventListener('click', () => {
+            window.location.href = `/events/${event.id}`;
+          });
           body.appendChild(tr);
         }
       }
