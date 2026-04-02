@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live RTSP</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      header {
+        padding: 16px 20px;
+        border-bottom: 1px solid #1e293b;
+      }
+      .tabs {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      .tab {
+        display: inline-block;
+        text-decoration: none;
+        color: #cbd5e1;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+      .tab.active {
+        color: #0f172a;
+        background: #22c55e;
+        border-color: #22c55e;
+        font-weight: 700;
+      }
+      .panel {
+        padding: 16px;
+      }
+      .muted {
+        color: #94a3b8;
+      }
+      details {
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        background: #111827;
+        margin-bottom: 12px;
+        overflow: hidden;
+      }
+      summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 12px;
+        font-weight: 700;
+        border-bottom: 1px solid #1f2937;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      .stream-wrap {
+        padding: 12px;
+      }
+      .camera-image {
+        width: 100%;
+        max-width: 960px;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        display: block;
+        background: #020617;
+        border-radius: 8px;
+      }
+      .camera-hint {
+        margin-bottom: 10px;
+        color: #94a3b8;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h2 style="margin: 0 0 6px 0">DetectionStats Dashboard</h2>
+      <div class="tabs">
+        <a class="tab" href="/">Последнее срабатывание</a>
+        <a class="tab" href="/archive">Архив срабатываний</a>
+        <a class="tab active" href="/live">Live RTSP</a>
+      </div>
+    </header>
+
+    <div class="panel">
+      <h3 style="margin-top: 0">Видео с камер в реальном времени</h3>
+      <p class="muted" style="margin-top: 0">
+        Потоки разворачиваются по одному — так можно снизить нагрузку, если одновременно 4 видео работают нестабильно.
+      </p>
+
+      {% for cam in cams %}
+      <details class="stream-card">
+        <summary>{{ cam }}</summary>
+        <div class="stream-wrap">
+          {% if cam in streams %}
+          <div class="camera-hint">Источник: {{ streams[cam] }}</div>
+          <img class="camera-image" data-src="/api/live/{{ cam }}/mjpeg" alt="{{ cam }} live" />
+          {% else %}
+          <div class="muted">Для {{ cam }} не задан RTSP URL в файле конфигурации.</div>
+          {% endif %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+
+    <script>
+      for (const details of document.querySelectorAll('details')) {
+        details.addEventListener('toggle', () => {
+          const img = details.querySelector('img[data-src]');
+          if (!img) return;
+
+          if (details.open) {
+            if (!img.src) {
+              img.src = img.dataset.src;
+            }
+          } else {
+            img.removeAttribute('src');
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

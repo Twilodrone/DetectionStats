@@ -1,0 +1,6 @@
+{
+  "Cam1": "rtsp://user:password@192.168.1.101:554/stream1",
+  "Cam2": "rtsp://user:password@192.168.1.102:554/stream1",
+  "Cam3": "rtsp://user:password@192.168.1.103:554/stream1",
+  "Cam4": "rtsp://user:password@192.168.1.104:554/stream1"
+}
