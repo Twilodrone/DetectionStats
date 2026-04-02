@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ CAMERA_PICTURES_DIR = Path(os.getenv("CAMERA_PICTURES_DIR", "/home/sdp/Detector/
 EVENT_ARCHIVE_DIR = Path(os.getenv("EVENT_ARCHIVE_DIR", "./event_archive"))
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
+RTSP_CONFIG_PATH = Path(os.getenv("RTSP_CONFIG_PATH", "camera_streams.json"))
 
 CAM_KEYS = ["Cam1", "Cam2", "Cam3", "Cam4"]
 REDIS_KEYS = [
@@ -38,6 +40,24 @@ REDIS_KEYS = [
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def load_rtsp_config(config_path: Path) -> dict[str, str]:
+    if not config_path.exists():
+        return {}
+
+    with config_path.open("r", encoding="utf-8") as fh:
+        raw = json.load(fh)
+
+    if not isinstance(raw, dict):
+        return {}
+
+    streams: dict[str, str] = {}
+    for key in CAM_KEYS:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            streams[key] = value.strip()
+    return streams
 
 
 class SignalRepository:
@@ -214,6 +234,7 @@ watcher = RedisWatcher(repo)
 watcher.start()
 
 app = Flask(__name__)
+RTSP_STREAMS = load_rtsp_config(RTSP_CONFIG_PATH)
 
 
 @app.route("/")
@@ -224,6 +245,11 @@ def index() -> str:
 @app.route("/archive")
 def archive() -> str:
     return render_template("archive.html")
+
+
+@app.route("/live")
+def live() -> str:
+    return render_template("live.html", cams=CAM_KEYS, streams=RTSP_STREAMS)
 
 
 @app.route("/events/<int:event_id>")
@@ -292,6 +318,64 @@ def archived_event_camera_image(event_id: int, cam_name: str):
         return jsonify({"error": f"Image not found: {image_path}"}), 404
 
     return send_file(image_path, mimetype="image/jpeg", max_age=0)
+
+
+@app.route("/api/live/<cam_name>/mjpeg")
+def live_stream(cam_name: str):
+    if cam_name not in CAM_KEYS:
+        return jsonify({"error": "Unknown camera"}), 404
+
+    rtsp_url = RTSP_STREAMS.get(cam_name)
+    if not rtsp_url:
+        return jsonify({"error": f"RTSP stream for {cam_name} is not configured"}), 404
+
+    def generate():
+        cmd = [
+            "ffmpeg",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            rtsp_url,
+            "-f",
+            "mjpeg",
+            "-q:v",
+            "5",
+            "-vf",
+            "fps=10,scale=960:-1",
+            "pipe:1",
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,
+        )
+        try:
+            assert proc.stdout is not None
+            buffer = b""
+            for chunk in iter(lambda: proc.stdout.read(4096), b""):
+                buffer += chunk
+                while True:
+                    start = buffer.find(b"\xff\xd8")
+                    end = buffer.find(b"\xff\xd9")
+                    if start != -1 and end != -1 and end > start:
+                        frame = buffer[start : end + 2]
+                        buffer = buffer[end + 2 :]
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                        )
+                    else:
+                        break
+        finally:
+            proc.kill()
+            proc.wait()
+
+    return Response(
+        generate(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 if __name__ == "__main__":
