@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Архив срабатываний</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      header {
+        padding: 16px 20px;
+        border-bottom: 1px solid #1e293b;
+      }
+      .tabs {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      .tab {
+        display: inline-block;
+        text-decoration: none;
+        color: #cbd5e1;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+      .tab.active {
+        color: #0f172a;
+        background: #22c55e;
+        border-color: #22c55e;
+        font-weight: 700;
+      }
+      .panel {
+        padding: 16px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        border-bottom: 1px solid #1f2937;
+        padding: 8px;
+        text-align: left;
+        font-size: 13px;
+      }
+      tbody tr {
+        cursor: pointer;
+      }
+      tbody tr:hover {
+        background: #1e293b;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h2 style="margin: 0 0 6px 0">DetectionStats Dashboard</h2>
+      <div class="tabs">
+        <a class="tab" href="/">Последнее срабатывание</a>
+        <a class="tab active" href="/archive">Архив срабатываний</a>
+      </div>
+    </header>
+
+    <div class="panel">
+      <h3>Последние срабатывания</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Время UTC</th>
+            <th>Signal</th>
+            <th>Cam1_count</th>
+            <th>Cam1_wheelchair_cnt</th>
+          </tr>
+        </thead>
+        <tbody id="eventsBody"></tbody>
+      </table>
+    </div>
+
+    <script>
+      async function refreshEvents() {
+        const response = await fetch('/api/events?limit=50');
+        const data = await response.json();
+        const body = document.getElementById('eventsBody');
+        body.innerHTML = '';
+
+        for (const event of data.events) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${event.id}</td>
+            <td>${new Date(event.ts_utc).toLocaleString()}</td>
+            <td>${event.signal_value}</td>
+            <td>${event.payload.Cam1_count ?? 0}</td>
+            <td>${event.payload.Cam1_wheelchair_cnt ?? 0}</td>
+          `;
+          tr.addEventListener('click', () => {
+            window.location.href = `/events/${event.id}`;
+          });
+          body.appendChild(tr);
+        }
+      }
+
+      refreshEvents();
+      setInterval(() => {
+        refreshEvents().catch((e) => console.error('Refresh error', e));
+      }, 4000);
+    </script>
+  </body>
+</html>

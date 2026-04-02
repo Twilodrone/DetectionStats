@@ -15,14 +15,51 @@
         padding: 16px 20px;
         border-bottom: 1px solid #1e293b;
       }
-      .phase-status {
-        margin-top: 10px;
-        font-size: 34px;
-        font-weight: 800;
-        line-height: 1.2;
+      .tabs {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
       }
-      .phase-yes { color: #22c55e; }
-      .phase-no { color: #ef4444; }
+      .tab {
+        display: inline-block;
+        text-decoration: none;
+        color: #cbd5e1;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+      .tab.active {
+        color: #0f172a;
+        background: #22c55e;
+        border-color: #22c55e;
+        font-weight: 700;
+      }
+      .panel {
+        padding: 16px;
+      }
+      .stats {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .pill {
+        background: #1e293b;
+        padding: 10px 12px;
+        border-radius: 8px;
+      }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(180px, 1fr));
+        gap: 10px;
+      }
+      .summary-card {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        padding: 10px 12px;
+      }
       .grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(300px, 1fr));
@@ -47,160 +84,117 @@
         display: block;
         background: #020617;
       }
-      .camera-meta {
-        padding: 10px 12px;
+      .muted {
+        color: #94a3b8;
         font-size: 14px;
-        color: #cbd5e1;
       }
-      .panel {
-        padding: 16px;
-      }
-      .stats {
-        display: flex;
-        gap: 20px;
-        flex-wrap: wrap;
-      }
-      .pill {
-        background: #1e293b;
-        padding: 10px 12px;
-        border-radius: 8px;
-      }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 8px;
-      }
-      th, td {
-        border-bottom: 1px solid #1f2937;
-        padding: 8px;
-        text-align: left;
-        font-size: 13px;
-      }
-      tbody tr {
-        cursor: pointer;
-      }
-      tbody tr:hover {
-        background: #1e293b;
-      }
-      .ok { color: #22c55e; }
-      .bad { color: #ef4444; }
       @media (max-width: 900px) {
         .grid { grid-template-columns: 1fr; }
+        .summary-grid { grid-template-columns: 1fr; }
       }
     </style>
   </head>
   <body>
     <header>
       <h2 style="margin: 0 0 6px 0">DetectionStats Dashboard</h2>
-      <div id="redisState">Redis: ...</div>
-      <div id="updatedAt" style="font-size: 12px; color: #94a3b8"></div>
-      <div id="phaseStatus" class="phase-status phase-no">Удлиненная фаза: Нет</div>
+      <div class="tabs">
+        <a class="tab active" href="/">Последнее срабатывание</a>
+        <a class="tab" href="/archive">Архив срабатываний</a>
+      </div>
     </header>
 
     <div class="panel">
-      <h3>Статистика Signal</h3>
+      <h3>Общая статистика</h3>
       <div class="stats">
         <div class="pill">Срабатываний всего: <strong id="totalTriggers">0</strong></div>
         <div class="pill">Последнее: <strong id="lastTrigger">—</strong></div>
       </div>
     </div>
 
-    <div class="grid">
-      {% for cam in cams %}
-      <div class="card">
-        <div class="camera-title">{{ cam }}</div>
-        <img class="camera-image" id="img-{{ cam }}" src="/api/camera/{{ cam }}.jpg" alt="{{ cam }}" />
-        <div class="camera-meta">
-          Людей: <span id="{{ cam }}_count">0</span> · Инв. коляски:
-          <span id="{{ cam }}_wheelchair_cnt">0</span>
-        </div>
-      </div>
-      {% endfor %}
+    <div class="panel">
+      <h3>Последнее срабатывание</h3>
+      <div id="latestMeta" class="muted">Загрузка...</div>
     </div>
 
-    <div class="panel">
-      <h3>Последние срабатывания</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Время UTC</th>
-            <th>Signal</th>
-            <th>Cam1_count</th>
-            <th>Cam1_wheelchair_cnt</th>
-          </tr>
-        </thead>
-        <tbody id="eventsBody"></tbody>
-      </table>
+    <div id="latestSummary" class="panel" style="display: none">
+      <div class="summary-grid" id="summaryGrid"></div>
     </div>
+
+    <div id="latestImages" class="grid"></div>
 
     <script>
       const cams = ["Cam1", "Cam2", "Cam3", "Cam4"];
 
-      async function refreshStatus() {
-        const response = await fetch('/api/status');
-        const data = await response.json();
-
-        document.getElementById('redisState').innerHTML = data.redis.redis_ok
-          ? '<span class="ok">Redis: подключен</span>'
-          : '<span class="bad">Redis: нет подключения</span>';
-
-        document.getElementById('updatedAt').textContent =
-          'Обновлено: ' + new Date(data.timestamp_utc).toLocaleString();
-
-        document.getElementById('totalTriggers').textContent = data.stats.total_triggers;
-        document.getElementById('lastTrigger').textContent = data.stats.last_trigger_utc
-          ? new Date(data.stats.last_trigger_utc).toLocaleString()
-          : '—';
-
-        const signal = Number(data.redis.values.Signal ?? 0);
-        const phaseStatus = document.getElementById('phaseStatus');
-        const isExtended = signal === 1;
-        phaseStatus.textContent = `Удлиненная фаза: ${isExtended ? 'Да' : 'Нет'}`;
-        phaseStatus.className = `phase-status ${isExtended ? 'phase-yes' : 'phase-no'}`;
-
-        for (const cam of cams) {
-          document.getElementById(`${cam}_count`).textContent = data.redis.values[`${cam}_count`] ?? 0;
-          document.getElementById(`${cam}_wheelchair_cnt`).textContent =
-            data.redis.values[`${cam}_wheelchair_cnt`] ?? 0;
-
-          const img = document.getElementById(`img-${cam}`);
-          img.src = `/api/camera/${cam}.jpg?t=${Date.now()}`;
-        }
+      function cameraSummary(event, cam) {
+        return {
+          people: event.payload[`${cam}_count`] ?? 0,
+          wheelchair: event.payload[`${cam}_wheelchair_cnt`] ?? 0,
+        };
       }
 
-      async function refreshEvents() {
-        const response = await fetch('/api/events?limit=20');
-        const data = await response.json();
-        const body = document.getElementById('eventsBody');
-        body.innerHTML = '';
+      function renderLatestEvent(event) {
+        const latestMeta = document.getElementById('latestMeta');
+        const summaryGrid = document.getElementById('summaryGrid');
+        const latestSummary = document.getElementById('latestSummary');
+        const latestImages = document.getElementById('latestImages');
 
-        for (const event of data.events) {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${event.id}</td>
-            <td>${new Date(event.ts_utc).toLocaleString()}</td>
-            <td>${event.signal_value}</td>
-            <td>${event.payload.Cam1_count ?? 0}</td>
-            <td>${event.payload.Cam1_wheelchair_cnt ?? 0}</td>
+        latestMeta.innerHTML = `ID: <strong>${event.id}</strong> · Время: <strong>${new Date(event.ts_utc).toLocaleString()}</strong> · Signal: <strong>${event.signal_value}</strong>`;
+
+        summaryGrid.innerHTML = '';
+        latestImages.innerHTML = '';
+
+        for (const cam of cams) {
+          const info = cameraSummary(event, cam);
+
+          const summary = document.createElement('div');
+          summary.className = 'summary-card';
+          summary.innerHTML = `
+            <div><strong>${cam}</strong></div>
+            <div>Людей: ${info.people}</div>
+            <div>Инв. коляски: ${info.wheelchair}</div>
           `;
-          tr.addEventListener('click', () => {
-            window.location.href = `/events/${event.id}`;
-          });
-          body.appendChild(tr);
+          summaryGrid.appendChild(summary);
+
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <div class="camera-title">${cam}</div>
+            <img class="camera-image" src="/api/events/${event.id}/camera/${cam}.jpg" alt="${cam}" />
+          `;
+          latestImages.appendChild(card);
         }
+
+        latestSummary.style.display = 'block';
       }
 
       async function tick() {
-        try {
-          await Promise.all([refreshStatus(), refreshEvents()]);
-        } catch (e) {
-          console.error('Refresh error', e);
+        const [statusRes, eventsRes] = await Promise.all([
+          fetch('/api/status'),
+          fetch('/api/events?limit=1'),
+        ]);
+
+        const status = await statusRes.json();
+        const eventsData = await eventsRes.json();
+
+        document.getElementById('totalTriggers').textContent = status.stats.total_triggers;
+        document.getElementById('lastTrigger').textContent = status.stats.last_trigger_utc
+          ? new Date(status.stats.last_trigger_utc).toLocaleString()
+          : '—';
+
+        if (!eventsData.events.length) {
+          document.getElementById('latestMeta').textContent = 'Срабатываний пока нет.';
+          document.getElementById('latestSummary').style.display = 'none';
+          document.getElementById('latestImages').innerHTML = '';
+          return;
         }
+
+        renderLatestEvent(eventsData.events[0]);
       }
 
       tick();
-      setInterval(tick, 2000);
+      setInterval(() => {
+        tick().catch((e) => console.error('Refresh error', e));
+      }, 4000);
     </script>
   </body>
 </html>
