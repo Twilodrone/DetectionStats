@@ -221,6 +221,11 @@ def index() -> str:
     return render_template("index.html", cams=CAM_KEYS)
 
 
+@app.route("/archive")
+def archive() -> str:
+    return render_template("archive.html")
+
+
 @app.route("/events/<int:event_id>")
 def event_report(event_id: int):
     event = repo.get_event_by_id(event_id)
