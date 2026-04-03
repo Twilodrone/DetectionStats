@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+from queue import Empty, Queue
 import shutil
 import sqlite3
 import subprocess
@@ -23,6 +25,7 @@ EVENT_ARCHIVE_DIR = Path(os.getenv("EVENT_ARCHIVE_DIR", "./event_archive"))
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 RTSP_CONFIG_PATH = Path(os.getenv("RTSP_CONFIG_PATH", "camera_streams.json"))
+RTSP_SNAPSHOT_TIMEOUT_SECONDS = float(os.getenv("RTSP_SNAPSHOT_TIMEOUT_SECONDS", "5"))
 
 CAM_KEYS = ["Cam1", "Cam2", "Cam3", "Cam4"]
 REDIS_KEYS = [
@@ -163,8 +166,9 @@ class SignalRepository:
 
 
 class RedisWatcher:
-    def __init__(self, repo: SignalRepository) -> None:
+    def __init__(self, repo: SignalRepository, rtsp_streams: dict[str, str]) -> None:
         self.repo = repo
+        self.rtsp_streams = rtsp_streams
         self.redis_client = redis.Redis(
             host=REDIS_HOST,
             port=REDIS_PORT,
@@ -174,15 +178,19 @@ class RedisWatcher:
         )
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
+        self._archive_thread = threading.Thread(target=self._archive_worker, daemon=True)
+        self._archive_queue: Queue[int] = Queue()
         self._last_snapshot: dict[str, int] = {key: 0 for key in REDIS_KEYS}
         self._last_redis_ok: bool = False
 
     def start(self) -> None:
         self._thread.start()
+        self._archive_thread.start()
 
     def stop(self) -> None:
         self._stop_event.set()
         self._thread.join(timeout=2)
+        self._archive_thread.join(timeout=2)
 
     def get_snapshot(self) -> dict[str, Any]:
         return {
@@ -200,15 +208,70 @@ class RedisWatcher:
                 values[key] = 0
         return values
 
+    def _capture_rtsp_frame(self, rtsp_url: str, dst_path: Path) -> bool:
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            rtsp_url,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            str(dst_path),
+        ]
+        try:
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=RTSP_SNAPSHOT_TIMEOUT_SECONDS,
+                check=True,
+            )
+            return dst_path.exists()
+        except subprocess.TimeoutExpired:
+            logging.warning("Timeout while capturing RTSP frame: %s", rtsp_url)
+        except subprocess.CalledProcessError:
+            logging.warning("ffmpeg failed while capturing RTSP frame: %s", rtsp_url)
+
+        if dst_path.exists():
+            dst_path.unlink(missing_ok=True)
+        return False
+
     def _archive_event_images(self, event_id: int) -> None:
         event_dir = EVENT_ARCHIVE_DIR / f"event_{event_id}"
         event_dir.mkdir(parents=True, exist_ok=True)
 
         for cam_name in CAM_KEYS:
-            src = CAMERA_PICTURES_DIR / f"{cam_name}.jpg"
             dst = event_dir / f"{cam_name}.jpg"
+            rtsp_url = self.rtsp_streams.get(cam_name)
+            if rtsp_url and self._capture_rtsp_frame(rtsp_url, dst):
+                continue
+
+            if not rtsp_url:
+                logging.warning("RTSP URL is not configured for %s. Using fallback image.", cam_name)
+            else:
+                logging.warning("RTSP capture failed for %s. Using fallback image.", cam_name)
+
+            src = CAMERA_PICTURES_DIR / f"{cam_name}.jpg"
             if src.exists():
                 shutil.copy2(src, dst)
+            else:
+                logging.warning("Fallback image for %s not found: %s", cam_name, src)
+
+    def _archive_worker(self) -> None:
+        while not self._stop_event.is_set() or not self._archive_queue.empty():
+            try:
+                event_id = self._archive_queue.get(timeout=0.5)
+            except Empty:
+                continue
+            try:
+                self._archive_event_images(event_id)
+            finally:
+                self._archive_queue.task_done()
 
     def _run(self) -> None:
         previous_signal = 0
@@ -221,7 +284,7 @@ class RedisWatcher:
                 current_signal = values.get("Signal", 0)
                 if previous_signal == 0 and current_signal == 1:
                     event_id = self.repo.add_event(payload=values, signal_value=current_signal)
-                    self._archive_event_images(event_id)
+                    self._archive_queue.put(event_id)
 
                 previous_signal = current_signal
             except redis.RedisError:
@@ -229,12 +292,11 @@ class RedisWatcher:
             time.sleep(POLL_INTERVAL_SECONDS)
 
 
-repo = SignalRepository(DB_PATH)
-watcher = RedisWatcher(repo)
-watcher.start()
-
 app = Flask(__name__)
 RTSP_STREAMS = load_rtsp_config(RTSP_CONFIG_PATH)
+repo = SignalRepository(DB_PATH)
+watcher = RedisWatcher(repo, RTSP_STREAMS)
+watcher.start()
 
 
 @app.route("/")
