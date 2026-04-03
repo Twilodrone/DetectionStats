@@ -42,6 +42,7 @@ python app.py
 - `WEB_HOST` (по умолчанию `0.0.0.0`)
 - `WEB_PORT` (по умолчанию `8080`)
 - `RTSP_CONFIG_PATH` (по умолчанию `./camera_streams.json`)
+- `RTSP_SNAPSHOT_TIMEOUT_SECONDS` (по умолчанию `5`, timeout на попытку снять RTSP-кадр для архива)
 
 ## Логика срабатываний
 
@@ -50,7 +51,10 @@ python app.py
 - сохраняется снимок значений всех счётчиков:
   - `Cam1_count..Cam4_count`
   - `Cam1_wheelchair_cnt..Cam4_wheelchair_cnt`
-- создается архив изображений камер в `EVENT_ARCHIVE_DIR/event_<id>/CamX.jpg`
+- сразу сохраняется событие в SQLite;
+- затем в фоне запускается архивация изображений, чтобы не блокировать цикл опроса Redis;
+- архивные кадры `EVENT_ARCHIVE_DIR/event_<id>/CamX.jpg` снимаются как live-snapshot из RTSP (`camera_streams.json`) через `ffmpeg`;
+- если RTSP для камеры не настроен или получить кадр не удалось (включая timeout), используется fallback: копия `CAMERA_PICTURES_DIR/CamX.jpg` (если файл доступен).
 
 ## API
 
