@@ -347,7 +347,23 @@ def api_events() -> Response:
     from flask import request
 
     limit = request.args.get("limit", default=50, type=int)
-    return jsonify({"events": repo.get_recent_events(limit=limit)})
+    wheelchair_gt_zero = request.args.get("wheelchair_gt_zero", default=0, type=int) == 1
+    any_cam_count_gt = request.args.get("any_cam_count_gt", type=int)
+
+    events = repo.get_recent_events(limit=limit)
+    filtered_events: list[dict[str, Any]] = []
+    for event in events:
+        payload = event.get("payload", {})
+        total_wheelchair_cnt = sum(int(payload.get(f"{cam}_wheelchair_cnt", 0)) for cam in CAM_KEYS)
+        any_cam_pedestrians = max(int(payload.get(f"{cam}_count", 0)) for cam in CAM_KEYS)
+
+        if wheelchair_gt_zero and total_wheelchair_cnt <= 0:
+            continue
+        if any_cam_count_gt is not None and any_cam_pedestrians <= any_cam_count_gt:
+            continue
+        filtered_events.append(event)
+
+    return jsonify({"events": filtered_events})
 
 
 @app.route("/api/events/<int:event_id>")
