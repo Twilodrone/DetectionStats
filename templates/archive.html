@@ -43,6 +43,27 @@
         width: 100%;
         border-collapse: collapse;
       }
+      .filters {
+        margin: 12px 0;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .filters label {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 14px;
+      }
+      .filters input[type="number"] {
+        width: 84px;
+        background: #0b1220;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 4px 6px;
+      }
       th, td {
         border-bottom: 1px solid #1f2937;
         padding: 8px;
@@ -69,14 +90,25 @@
 
     <div class="panel">
       <h3>Последние срабатывания</h3>
+      <div class="filters">
+        <label>
+          <input type="checkbox" id="filterWheelchairGtZero" />
+          Маломобильные &gt; 0
+        </label>
+        <label>
+          Пешеходы на любой из камер &gt;
+          <input type="number" id="filterAnyCamCountGt" min="0" step="1" placeholder="n" />
+        </label>
+      </div>
       <table>
         <thead>
           <tr>
             <th>ID</th>
-            <th>Время UTC</th>
-            <th>Signal</th>
-            <th>Cam1_count</th>
-            <th>Cam1_wheelchair_cnt</th>
+            <th>Cam1</th>
+            <th>Cam2</th>
+            <th>Cam3</th>
+            <th>Cam4</th>
+            <th>Маломобильные</th>
           </tr>
         </thead>
         <tbody id="eventsBody"></tbody>
@@ -84,20 +116,45 @@
     </div>
 
     <script>
+      function buildEventsUrl() {
+        const wheelchairGtZero = document.getElementById('filterWheelchairGtZero').checked;
+        const anyCamCountGtRaw = document.getElementById('filterAnyCamCountGt').value;
+        const params = new URLSearchParams();
+        params.set('limit', '50');
+        if (wheelchairGtZero) {
+          params.set('wheelchair_gt_zero', '1');
+        }
+        if (anyCamCountGtRaw !== '') {
+          params.set('any_cam_count_gt', String(Math.max(0, Number(anyCamCountGtRaw) || 0)));
+        }
+        return `/api/events?${params.toString()}`;
+      }
+
       async function refreshEvents() {
-        const response = await fetch('/api/events?limit=50');
+        const response = await fetch(buildEventsUrl());
         const data = await response.json();
         const body = document.getElementById('eventsBody');
         body.innerHTML = '';
 
         for (const event of data.events) {
+          const cam1 = event.payload.Cam1_count ?? 0;
+          const cam2 = event.payload.Cam2_count ?? 0;
+          const cam3 = event.payload.Cam3_count ?? 0;
+          const cam4 = event.payload.Cam4_count ?? 0;
+          const wheelchairTotal =
+            (event.payload.Cam1_wheelchair_cnt ?? 0) +
+            (event.payload.Cam2_wheelchair_cnt ?? 0) +
+            (event.payload.Cam3_wheelchair_cnt ?? 0) +
+            (event.payload.Cam4_wheelchair_cnt ?? 0);
+
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td>${event.id}</td>
-            <td>${new Date(event.ts_utc).toLocaleString()}</td>
-            <td>${event.signal_value}</td>
-            <td>${event.payload.Cam1_count ?? 0}</td>
-            <td>${event.payload.Cam1_wheelchair_cnt ?? 0}</td>
+            <td>${cam1}</td>
+            <td>${cam2}</td>
+            <td>${cam3}</td>
+            <td>${cam4}</td>
+            <td>${wheelchairTotal}</td>
           `;
           tr.addEventListener('click', () => {
             window.location.href = `/events/${event.id}`;
@@ -105,6 +162,13 @@
           body.appendChild(tr);
         }
       }
+
+      document.getElementById('filterWheelchairGtZero').addEventListener('change', () => {
+        refreshEvents().catch((e) => console.error('Refresh error', e));
+      });
+      document.getElementById('filterAnyCamCountGt').addEventListener('input', () => {
+        refreshEvents().catch((e) => console.error('Refresh error', e));
+      });
 
       refreshEvents();
       setInterval(() => {
