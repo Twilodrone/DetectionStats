@@ -78,7 +78,7 @@
         <div class="summary">
           <div><strong>{{ cam }}</strong></div>
           <div>Людей: {{ event.payload[cam ~ '_count'] if (cam ~ '_count') in event.payload else 0 }}</div>
-          <div>Инв. коляски: {{ event.payload[cam ~ '_wheelchair_cnt'] if (cam ~ '_wheelchair_cnt') in event.payload else 0 }}</div>
+          <div>Маломобильные: {{ event.payload[cam ~ '_wheelchair_cnt'] if (cam ~ '_wheelchair_cnt') in event.payload else 0 }}</div>
         </div>
         {% endfor %}
       </div>
