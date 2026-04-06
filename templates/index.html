@@ -125,6 +125,7 @@
 
     <script>
       const cams = ["Cam1", "Cam2", "Cam3", "Cam4"];
+      let lastRenderedEventId = null;
 
       function cameraSummary(event, cam) {
         return {
@@ -133,13 +134,15 @@
         };
       }
 
-      function renderLatestEvent(event) {
+      function renderEventMeta(event) {
         const latestMeta = document.getElementById('latestMeta');
+        latestMeta.innerHTML = `ID: <strong>${event.id}</strong> · Время: <strong>${new Date(event.ts_utc).toLocaleString()}</strong> · Signal: <strong>${event.signal_value}</strong>`;
+      }
+
+      function renderEventImages(event) {
         const summaryGrid = document.getElementById('summaryGrid');
         const latestSummary = document.getElementById('latestSummary');
         const latestImages = document.getElementById('latestImages');
-
-        latestMeta.innerHTML = `ID: <strong>${event.id}</strong> · Время: <strong>${new Date(event.ts_utc).toLocaleString()}</strong> · Signal: <strong>${event.signal_value}</strong>`;
 
         summaryGrid.innerHTML = '';
         latestImages.innerHTML = '';
@@ -168,6 +171,13 @@
         latestSummary.style.display = 'block';
       }
 
+      function renderLatestEvent(event, shouldRenderImages) {
+        renderEventMeta(event);
+        if (shouldRenderImages) {
+          renderEventImages(event);
+        }
+      }
+
       async function tick() {
         const [statusRes, eventsRes] = await Promise.all([
           fetch('/api/status'),
@@ -186,10 +196,19 @@
           document.getElementById('latestMeta').textContent = 'Срабатываний пока нет.';
           document.getElementById('latestSummary').style.display = 'none';
           document.getElementById('latestImages').innerHTML = '';
+          lastRenderedEventId = null;
           return;
         }
 
-        renderLatestEvent(eventsData.events[0]);
+        const event = eventsData.events[0];
+
+        if (event.id !== lastRenderedEventId) {
+          renderLatestEvent(event, true);
+          lastRenderedEventId = event.id;
+          return;
+        }
+
+        renderLatestEvent(event, false);
       }
 
       tick();
