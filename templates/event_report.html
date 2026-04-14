@@ -41,6 +41,9 @@
         grid-template-columns: repeat(2, minmax(300px, 1fr));
         gap: 12px;
       }
+      .section-title {
+        margin: 20px 0 10px 0;
+      }
       .camera-title {
         padding: 8px 12px;
         font-weight: 700;
@@ -83,11 +86,22 @@
         {% endfor %}
       </div>
 
+      <h3 class="section-title">Пешеходы</h3>
       <div class="grid">
         {% for cam in cams %}
         <div class="card">
           <div class="camera-title">{{ cam }}</div>
-          <img class="camera-image" src="/api/events/{{ event.id }}/camera/{{ cam }}.jpg" alt="{{ cam }}" />
+          <img class="camera-image" src="/api/events/{{ event.id }}/camera/pedestrian/{{ cam }}.jpg" alt="Пешеходы {{ cam }}" />
+        </div>
+        {% endfor %}
+      </div>
+
+      <h3 class="section-title">Маломобильные</h3>
+      <div class="grid">
+        {% for cam in cams %}
+        <div class="card">
+          <div class="camera-title">{{ cam }}</div>
+          <img class="camera-image" src="/api/events/{{ event.id }}/camera/wheelchair/{{ cam }}.jpg" alt="Маломобильные {{ cam }}" />
         </div>
         {% endfor %}
       </div>
