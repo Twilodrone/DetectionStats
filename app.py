@@ -20,7 +20,12 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", "2"))
 DB_PATH = os.getenv("DB_PATH", "signal_events.db")
-CAMERA_PICTURES_DIR = Path(os.getenv("CAMERA_PICTURES_DIR", "/home/sdp/Detector/pictures"))
+PEDESTRIAN_PICTURES_DIR = Path(
+    os.getenv("PEDESTRIAN_PICTURES_DIR", "/home/sdp/Detector/pictures/pedestrian")
+)
+WHEELCHAIR_PICTURES_DIR = Path(
+    os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/Detector/pictures/wheelchair")
+)
 EVENT_ARCHIVE_DIR = Path(os.getenv("EVENT_ARCHIVE_DIR", "./event_archive"))
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -28,6 +33,10 @@ RTSP_CONFIG_PATH = Path(os.getenv("RTSP_CONFIG_PATH", "camera_streams.json"))
 RTSP_SNAPSHOT_TIMEOUT_SECONDS = float(os.getenv("RTSP_SNAPSHOT_TIMEOUT_SECONDS", "5"))
 
 CAM_KEYS = ["Cam1", "Cam2", "Cam3", "Cam4"]
+IMAGE_SOURCES = {
+    "pedestrian": PEDESTRIAN_PICTURES_DIR,
+    "wheelchair": WHEELCHAIR_PICTURES_DIR,
+}
 REDIS_KEYS = [
     "Signal",
     "Cam1_count",
@@ -246,21 +255,19 @@ class RedisWatcher:
         event_dir.mkdir(parents=True, exist_ok=True)
 
         for cam_name in CAM_KEYS:
-            dst = event_dir / f"{cam_name}.jpg"
-            rtsp_url = self.rtsp_streams.get(cam_name)
-            if rtsp_url and self._capture_rtsp_frame(rtsp_url, dst):
-                continue
-
-            if not rtsp_url:
-                logging.warning("RTSP URL is not configured for %s. Using fallback image.", cam_name)
-            else:
-                logging.warning("RTSP capture failed for %s. Using fallback image.", cam_name)
-
-            src = CAMERA_PICTURES_DIR / f"{cam_name}.jpg"
-            if src.exists():
-                shutil.copy2(src, dst)
-            else:
-                logging.warning("Fallback image for %s not found: %s", cam_name, src)
+            for source_name, source_dir in IMAGE_SOURCES.items():
+                dst = event_dir / source_name / f"{cam_name}.jpg"
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                src = source_dir / f"{cam_name}.jpg"
+                if src.exists():
+                    shutil.copy2(src, dst)
+                else:
+                    logging.warning(
+                        "Image for %s source and %s camera not found: %s",
+                        source_name,
+                        cam_name,
+                        src,
+                    )
 
     def _archive_worker(self) -> None:
         while not self._stop_event.is_set() or not self._archive_queue.empty():
@@ -374,12 +381,33 @@ def api_event_by_id(event_id: int) -> Response:
     return jsonify(event)
 
 
-@app.route("/api/camera/<cam_name>.jpg")
-def camera_image(cam_name: str):
+@app.route("/api/camera/<source_name>/<cam_name>.jpg")
+def camera_image(source_name: str, cam_name: str):
     if cam_name not in CAM_KEYS:
         return jsonify({"error": "Unknown camera"}), 404
+    if source_name not in IMAGE_SOURCES:
+        return jsonify({"error": "Unknown image source"}), 404
 
-    image_path = CAMERA_PICTURES_DIR / f"{cam_name}.jpg"
+    image_path = IMAGE_SOURCES[source_name] / f"{cam_name}.jpg"
+    if not image_path.exists():
+        return jsonify({"error": f"Image not found: {image_path}"}), 404
+
+    return send_file(image_path, mimetype="image/jpeg", max_age=0)
+
+
+@app.route("/api/camera/<cam_name>.jpg")
+def camera_image_legacy(cam_name: str):
+    return camera_image("pedestrian", cam_name)
+
+
+@app.route("/api/events/<int:event_id>/camera/<source_name>/<cam_name>.jpg")
+def archived_event_camera_image(event_id: int, source_name: str, cam_name: str):
+    if cam_name not in CAM_KEYS:
+        return jsonify({"error": "Unknown camera"}), 404
+    if source_name not in IMAGE_SOURCES:
+        return jsonify({"error": "Unknown image source"}), 404
+
+    image_path = EVENT_ARCHIVE_DIR / f"event_{event_id}" / source_name / f"{cam_name}.jpg"
     if not image_path.exists():
         return jsonify({"error": f"Image not found: {image_path}"}), 404
 
@@ -387,15 +415,8 @@ def camera_image(cam_name: str):
 
 
 @app.route("/api/events/<int:event_id>/camera/<cam_name>.jpg")
-def archived_event_camera_image(event_id: int, cam_name: str):
-    if cam_name not in CAM_KEYS:
-        return jsonify({"error": "Unknown camera"}), 404
-
-    image_path = EVENT_ARCHIVE_DIR / f"event_{event_id}" / f"{cam_name}.jpg"
-    if not image_path.exists():
-        return jsonify({"error": f"Image not found: {image_path}"}), 404
-
-    return send_file(image_path, mimetype="image/jpeg", max_age=0)
+def archived_event_camera_image_legacy(event_id: int, cam_name: str):
+    return archived_event_camera_image(event_id, "pedestrian", cam_name)
 
 
 @app.route("/api/live/<cam_name>/mjpeg")

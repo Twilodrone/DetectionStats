@@ -64,7 +64,12 @@
         display: grid;
         grid-template-columns: repeat(2, minmax(300px, 1fr));
         gap: 12px;
-        padding: 16px;
+      }
+      .image-section {
+        padding: 0 16px 16px 16px;
+      }
+      .section-title {
+        margin: 0 0 10px 0;
       }
       .card {
         background: #111827;
@@ -121,7 +126,15 @@
       <div class="summary-grid" id="summaryGrid"></div>
     </div>
 
-    <div id="latestImages" class="grid"></div>
+    <div class="image-section">
+      <h3 class="section-title">Пешеходы</h3>
+      <div id="latestPedestrianImages" class="grid"></div>
+    </div>
+
+    <div class="image-section">
+      <h3 class="section-title">Маломобильные</h3>
+      <div id="latestWheelchairImages" class="grid"></div>
+    </div>
 
     <script>
       const cams = ["Cam1", "Cam2", "Cam3", "Cam4"];
@@ -142,10 +155,12 @@
       function renderEventImages(event) {
         const summaryGrid = document.getElementById('summaryGrid');
         const latestSummary = document.getElementById('latestSummary');
-        const latestImages = document.getElementById('latestImages');
+        const latestPedestrianImages = document.getElementById('latestPedestrianImages');
+        const latestWheelchairImages = document.getElementById('latestWheelchairImages');
 
         summaryGrid.innerHTML = '';
-        latestImages.innerHTML = '';
+        latestPedestrianImages.innerHTML = '';
+        latestWheelchairImages.innerHTML = '';
 
         for (const cam of cams) {
           const info = cameraSummary(event, cam);
@@ -159,13 +174,21 @@
           `;
           summaryGrid.appendChild(summary);
 
-          const card = document.createElement('div');
-          card.className = 'card';
-          card.innerHTML = `
+          const pedestrianCard = document.createElement('div');
+          pedestrianCard.className = 'card';
+          pedestrianCard.innerHTML = `
             <div class="camera-title">${cam}</div>
-            <img class="camera-image" src="/api/events/${event.id}/camera/${cam}.jpg" alt="${cam}" />
+            <img class="camera-image" src="/api/events/${event.id}/camera/pedestrian/${cam}.jpg" alt="Пешеходы ${cam}" />
           `;
-          latestImages.appendChild(card);
+          latestPedestrianImages.appendChild(pedestrianCard);
+
+          const wheelchairCard = document.createElement('div');
+          wheelchairCard.className = 'card';
+          wheelchairCard.innerHTML = `
+            <div class="camera-title">${cam}</div>
+            <img class="camera-image" src="/api/events/${event.id}/camera/wheelchair/${cam}.jpg" alt="Маломобильные ${cam}" />
+          `;
+          latestWheelchairImages.appendChild(wheelchairCard);
         }
 
         latestSummary.style.display = 'block';
@@ -195,7 +218,8 @@
         if (!eventsData.events.length) {
           document.getElementById('latestMeta').textContent = 'Срабатываний пока нет.';
           document.getElementById('latestSummary').style.display = 'none';
-          document.getElementById('latestImages').innerHTML = '';
+          document.getElementById('latestPedestrianImages').innerHTML = '';
+          document.getElementById('latestWheelchairImages').innerHTML = '';
           lastRenderedEventId = null;
           return;
         }
