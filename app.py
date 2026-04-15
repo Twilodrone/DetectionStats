@@ -26,6 +26,9 @@ PEDESTRIAN_PICTURES_DIR = Path(
 WHEELCHAIR_PICTURES_DIR = Path(
     os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/Detector/pictures/wheelchair")
 )
+ERROR_IMAGE_PATH = Path(
+    os.getenv("ERROR_IMAGE_PATH", "/home/sdp/Detector/pictures/error.jpg")
+)
 EVENT_ARCHIVE_DIR = Path(os.getenv("EVENT_ARCHIVE_DIR", "./event_archive"))
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -52,6 +55,17 @@ REDIS_KEYS = [
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def send_image_with_fallback(image_path: Path):
+    if image_path.exists():
+        return send_file(image_path, mimetype="image/jpeg", max_age=0)
+
+    if ERROR_IMAGE_PATH.exists():
+        logging.warning("Image not found, returning fallback image: %s", image_path)
+        return send_file(ERROR_IMAGE_PATH, mimetype="image/jpeg", max_age=0)
+
+    return jsonify({"error": f"Image not found: {image_path}"}), 404
 
 
 def load_rtsp_config(config_path: Path) -> dict[str, str]:
@@ -260,7 +274,7 @@ class RedisWatcher:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 src = source_dir / f"{cam_name}.jpg"
                 if src.exists():
-                    shutil.copy2(src, dst)
+                    shutil.move(src, dst)
                 else:
                     logging.warning(
                         "Image for %s source and %s camera not found: %s",
@@ -389,10 +403,7 @@ def camera_image(source_name: str, cam_name: str):
         return jsonify({"error": "Unknown image source"}), 404
 
     image_path = IMAGE_SOURCES[source_name] / f"{cam_name}.jpg"
-    if not image_path.exists():
-        return jsonify({"error": f"Image not found: {image_path}"}), 404
-
-    return send_file(image_path, mimetype="image/jpeg", max_age=0)
+    return send_image_with_fallback(image_path)
 
 
 @app.route("/api/camera/<cam_name>.jpg")
@@ -408,10 +419,7 @@ def archived_event_camera_image(event_id: int, source_name: str, cam_name: str):
         return jsonify({"error": "Unknown image source"}), 404
 
     image_path = EVENT_ARCHIVE_DIR / f"event_{event_id}" / source_name / f"{cam_name}.jpg"
-    if not image_path.exists():
-        return jsonify({"error": f"Image not found: {image_path}"}), 404
-
-    return send_file(image_path, mimetype="image/jpeg", max_age=0)
+    return send_image_with_fallback(image_path)
 
 
 @app.route("/api/events/<int:event_id>/camera/<cam_name>.jpg")
