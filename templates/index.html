@@ -127,25 +127,12 @@
     </div>
 
     <div class="image-section">
-      <h3 class="section-title">Пешеходы</h3>
-      <div id="latestPedestrianImages" class="grid"></div>
-    </div>
-
-    <div class="image-section">
-      <h3 class="section-title">Маломобильные</h3>
-      <div id="latestWheelchairImages" class="grid"></div>
+      <h3 class="section-title">Кадр, вызвавший удлинение фазы</h3>
+      <div id="latestTriggerImage" class="grid"></div>
     </div>
 
     <script>
-      const cams = ["Cam1", "Cam2", "Cam3", "Cam4"];
       let lastRenderedEventId = null;
-
-      function cameraSummary(event, cam) {
-        return {
-          people: event.payload[`${cam}_count`] ?? 0,
-          wheelchair: event.payload[`${cam}_wheelchair_cnt`] ?? 0,
-        };
-      }
 
       function renderEventMeta(event) {
         const latestMeta = document.getElementById('latestMeta');
@@ -155,40 +142,35 @@
       function renderEventImages(event) {
         const summaryGrid = document.getElementById('summaryGrid');
         const latestSummary = document.getElementById('latestSummary');
-        const latestPedestrianImages = document.getElementById('latestPedestrianImages');
-        const latestWheelchairImages = document.getElementById('latestWheelchairImages');
+        const latestTriggerImage = document.getElementById('latestTriggerImage');
 
         summaryGrid.innerHTML = '';
-        latestPedestrianImages.innerHTML = '';
-        latestWheelchairImages.innerHTML = '';
+        latestTriggerImage.innerHTML = '';
 
-        for (const cam of cams) {
-          const info = cameraSummary(event, cam);
+        const triggerCam = event.payload.trigger_cam;
+        const triggerSource = event.payload.trigger_source;
+        const people = event.payload[`${triggerCam}_count`] ?? 0;
+        const wheelchair = event.payload[`${triggerCam}_wheelchair_cnt`] ?? 0;
+        const summary = document.createElement('div');
+        summary.className = 'summary-card';
+        summary.innerHTML = `
+          <div><strong>${triggerCam}</strong></div>
+          <div>Источник: ${triggerSource === 'pedestrian' ? 'Пешеходы' : 'Маломобильные'}</div>
+          <div>Людей: ${people}</div>
+          <div>Маломобильные: ${wheelchair}</div>
+        `;
+        summaryGrid.appendChild(summary);
 
-          const summary = document.createElement('div');
-          summary.className = 'summary-card';
-          summary.innerHTML = `
-            <div><strong>${cam}</strong></div>
-            <div>Людей: ${info.people}</div>
-            <div>Маломобильные: ${info.wheelchair}</div>
+        if (triggerCam && triggerSource) {
+          const triggerCard = document.createElement('div');
+          triggerCard.className = 'card';
+          triggerCard.innerHTML = `
+            <div class="camera-title">${triggerCam} · ${triggerSource === 'pedestrian' ? 'Пешеходы' : 'Маломобильные'}</div>
+            <img class="camera-image" src="/api/events/${event.id}/camera/${triggerSource}/${triggerCam}.jpg" alt="${triggerSource} ${triggerCam}" />
           `;
-          summaryGrid.appendChild(summary);
-
-          const pedestrianCard = document.createElement('div');
-          pedestrianCard.className = 'card';
-          pedestrianCard.innerHTML = `
-            <div class="camera-title">${cam}</div>
-            <img class="camera-image" src="/api/events/${event.id}/camera/pedestrian/${cam}.jpg" alt="Пешеходы ${cam}" />
-          `;
-          latestPedestrianImages.appendChild(pedestrianCard);
-
-          const wheelchairCard = document.createElement('div');
-          wheelchairCard.className = 'card';
-          wheelchairCard.innerHTML = `
-            <div class="camera-title">${cam}</div>
-            <img class="camera-image" src="/api/events/${event.id}/camera/wheelchair/${cam}.jpg" alt="Маломобильные ${cam}" />
-          `;
-          latestWheelchairImages.appendChild(wheelchairCard);
+          latestTriggerImage.appendChild(triggerCard);
+        } else {
+          latestTriggerImage.innerHTML = '<div class="muted">Нет данных о камере-триггере.</div>';
         }
 
         latestSummary.style.display = 'block';
@@ -218,8 +200,7 @@
         if (!eventsData.events.length) {
           document.getElementById('latestMeta').textContent = 'Срабатываний пока нет.';
           document.getElementById('latestSummary').style.display = 'none';
-          document.getElementById('latestPedestrianImages').innerHTML = '';
-          document.getElementById('latestWheelchairImages').innerHTML = '';
+          document.getElementById('latestTriggerImage').innerHTML = '';
           lastRenderedEventId = null;
           return;
         }
