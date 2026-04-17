@@ -76,35 +76,28 @@
         <div><strong>Signal:</strong> {{ event.signal_value }}</div>
       </div>
 
+      {% set trigger_cam = event.payload.get('trigger_cam') %}
+      {% set trigger_source = event.payload.get('trigger_source') %}
+      {% if trigger_cam and trigger_source %}
       <div class="summary-grid">
-        {% for cam in cams %}
         <div class="summary">
-          <div><strong>{{ cam }}</strong></div>
-          <div>Людей: {{ event.payload[cam ~ '_count'] if (cam ~ '_count') in event.payload else 0 }}</div>
-          <div>Маломобильные: {{ event.payload[cam ~ '_wheelchair_cnt'] if (cam ~ '_wheelchair_cnt') in event.payload else 0 }}</div>
+          <div><strong>{{ trigger_cam }}</strong></div>
+          <div>Источник: {{ "Пешеходы" if trigger_source == "pedestrian" else "Маломобильные" }}</div>
+          <div>Людей: {{ event.payload.get(trigger_cam ~ '_count', 0) }}</div>
+          <div>Маломобильные: {{ event.payload.get(trigger_cam ~ '_wheelchair_cnt', 0) }}</div>
         </div>
-        {% endfor %}
       </div>
 
-      <h3 class="section-title">Пешеходы</h3>
+      <h3 class="section-title">Кадр-триггер</h3>
       <div class="grid">
-        {% for cam in cams %}
         <div class="card">
-          <div class="camera-title">{{ cam }}</div>
-          <img class="camera-image" src="/api/events/{{ event.id }}/camera/pedestrian/{{ cam }}.jpg" alt="Пешеходы {{ cam }}" />
+          <div class="camera-title">{{ trigger_cam }} · {{ "Пешеходы" if trigger_source == "pedestrian" else "Маломобильные" }}</div>
+          <img class="camera-image" src="/api/events/{{ event.id }}/camera/{{ trigger_source }}/{{ trigger_cam }}.jpg" alt="Триггер {{ trigger_cam }}" />
         </div>
-        {% endfor %}
       </div>
-
-      <h3 class="section-title">Маломобильные</h3>
-      <div class="grid">
-        {% for cam in cams %}
-        <div class="card">
-          <div class="camera-title">{{ cam }}</div>
-          <img class="camera-image" src="/api/events/{{ event.id }}/camera/wheelchair/{{ cam }}.jpg" alt="Маломобильные {{ cam }}" />
-        </div>
-        {% endfor %}
-      </div>
+      {% else %}
+      <div class="summary">В событии не указаны trigger_cam/trigger_source.</div>
+      {% endif %}
     </div>
   </body>
 </html>

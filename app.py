@@ -34,6 +34,9 @@ WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 RTSP_CONFIG_PATH = Path(os.getenv("RTSP_CONFIG_PATH", "camera_streams.json"))
 RTSP_SNAPSHOT_TIMEOUT_SECONDS = float(os.getenv("RTSP_SNAPSHOT_TIMEOUT_SECONDS", "5"))
+DETECTOR_CONFIG_PATH = Path(
+    os.getenv("DETECTOR_CONFIG_PATH", "/home/sdp/Detector/serial/config.json")
+)
 
 CAM_KEYS = ["Cam1", "Cam2", "Cam3", "Cam4"]
 IMAGE_SOURCES = {
@@ -84,6 +87,35 @@ def load_rtsp_config(config_path: Path) -> dict[str, str]:
         if isinstance(value, str) and value.strip():
             streams[key] = value.strip()
     return streams
+
+
+def load_detector_thresholds(config_path: Path) -> tuple[int, int]:
+    default_min = int(os.getenv("PHASE_MIN_THRESHOLD", "6"))
+    default_max = int(os.getenv("PHASE_MAX_THRESHOLD", "7"))
+    if not config_path.exists():
+        logging.warning(
+            "Detector config not found at %s; using defaults min=%s max=%s",
+            config_path,
+            default_min,
+            default_max,
+        )
+        return default_min, default_max
+
+    try:
+        with config_path.open("r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        min_threshold = int(raw.get("min", default_min))
+        max_threshold = int(raw.get("max", default_max))
+        return min_threshold, max_threshold
+    except (json.JSONDecodeError, OSError, ValueError, TypeError) as exc:
+        logging.warning(
+            "Failed to read detector config %s (%s); using defaults min=%s max=%s",
+            config_path,
+            exc,
+            default_min,
+            default_max,
+        )
+        return default_min, default_max
 
 
 class SignalRepository:
@@ -189,9 +221,17 @@ class SignalRepository:
 
 
 class RedisWatcher:
-    def __init__(self, repo: SignalRepository, rtsp_streams: dict[str, str]) -> None:
+    def __init__(
+        self,
+        repo: SignalRepository,
+        rtsp_streams: dict[str, str],
+        min_threshold: int,
+        max_threshold: int,
+    ) -> None:
         self.repo = repo
         self.rtsp_streams = rtsp_streams
+        self.min_threshold = min_threshold
+        self.max_threshold = max_threshold
         self.redis_client = redis.Redis(
             host=REDIS_HOST,
             port=REDIS_PORT,
@@ -202,9 +242,13 @@ class RedisWatcher:
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._archive_thread = threading.Thread(target=self._archive_worker, daemon=True)
-        self._archive_queue: Queue[int] = Queue()
+        self._archive_queue: Queue[tuple[int, str, str]] = Queue()
         self._last_snapshot: dict[str, int] = {key: 0 for key in REDIS_KEYS}
         self._last_redis_ok: bool = False
+        self._previous_people_overflow_by_cam: dict[str, bool] = {cam: False for cam in CAM_KEYS}
+        self._previous_wheelchair_present_by_cam: dict[str, bool] = {
+            cam: False for cam in CAM_KEYS
+        }
 
     def start(self) -> None:
         self._thread.start()
@@ -264,50 +308,77 @@ class RedisWatcher:
             dst_path.unlink(missing_ok=True)
         return False
 
-    def _archive_event_images(self, event_id: int) -> None:
-        event_dir = EVENT_ARCHIVE_DIR / f"event_{event_id}"
+    def _archive_event_image(self, event_id: int, source_name: str, cam_name: str) -> None:
+        event_dir = EVENT_ARCHIVE_DIR / f"event_{event_id}" / source_name
         event_dir.mkdir(parents=True, exist_ok=True)
-
-        for cam_name in CAM_KEYS:
-            for source_name, source_dir in IMAGE_SOURCES.items():
-                dst = event_dir / source_name / f"{cam_name}.jpg"
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                src = source_dir / f"{cam_name}.jpg"
-                if src.exists():
-                    shutil.move(src, dst)
-                else:
-                    logging.warning(
-                        "Image for %s source and %s camera not found: %s",
-                        source_name,
-                        cam_name,
-                        src,
-                    )
+        src = IMAGE_SOURCES[source_name] / f"{cam_name}.jpg"
+        dst = event_dir / f"{cam_name}.jpg"
+        if src.exists():
+            shutil.copy2(src, dst)
+        else:
+            logging.warning(
+                "Image for %s source and %s camera not found: %s",
+                source_name,
+                cam_name,
+                src,
+            )
 
     def _archive_worker(self) -> None:
         while not self._stop_event.is_set() or not self._archive_queue.empty():
             try:
-                event_id = self._archive_queue.get(timeout=0.5)
+                event_id, source_name, cam_name = self._archive_queue.get(timeout=0.5)
             except Empty:
                 continue
             try:
-                self._archive_event_images(event_id)
+                self._archive_event_image(event_id, source_name, cam_name)
             finally:
                 self._archive_queue.task_done()
 
+    def _create_single_camera_event(
+        self, values: dict[str, int], cam_name: str, source_name: str
+    ) -> None:
+        people_count = values.get(f"{cam_name}_count", 0)
+        wheelchair_count = values.get(f"{cam_name}_wheelchair_cnt", 0)
+        event_payload = {
+            "min_threshold": self.min_threshold,
+            "max_threshold": self.max_threshold,
+            "trigger_source": source_name,
+            "trigger_cam": cam_name,
+            "Signal": values.get("Signal", 0),
+            f"{cam_name}_count": people_count,
+            f"{cam_name}_wheelchair_cnt": wheelchair_count,
+            "trigger_value": people_count if source_name == "pedestrian" else wheelchair_count,
+        }
+        event_id = self.repo.add_event(
+            payload=event_payload,
+            signal_value=values.get("Signal", 0),
+        )
+        self._archive_queue.put((event_id, source_name, cam_name))
+
     def _run(self) -> None:
-        previous_signal = 0
         while not self._stop_event.is_set():
             try:
                 values = self._fetch_values()
                 self._last_snapshot = values
                 self._last_redis_ok = True
 
-                current_signal = values.get("Signal", 0)
-                if previous_signal == 0 and current_signal == 1:
-                    event_id = self.repo.add_event(payload=values, signal_value=current_signal)
-                    self._archive_queue.put(event_id)
+                for cam_name in CAM_KEYS:
+                    people_count = values.get(f"{cam_name}_count", 0)
+                    wheelchair_count = values.get(f"{cam_name}_wheelchair_cnt", 0)
+                    people_overflow = people_count > self.max_threshold
+                    wheelchair_present = wheelchair_count > 0
 
-                previous_signal = current_signal
+                    if people_overflow and not self._previous_people_overflow_by_cam[cam_name]:
+                        self._create_single_camera_event(values, cam_name, "pedestrian")
+
+                    if (
+                        wheelchair_present
+                        and not self._previous_wheelchair_present_by_cam[cam_name]
+                    ):
+                        self._create_single_camera_event(values, cam_name, "wheelchair")
+
+                    self._previous_people_overflow_by_cam[cam_name] = people_overflow
+                    self._previous_wheelchair_present_by_cam[cam_name] = wheelchair_present
             except redis.RedisError:
                 self._last_redis_ok = False
             time.sleep(POLL_INTERVAL_SECONDS)
@@ -315,8 +386,9 @@ class RedisWatcher:
 
 app = Flask(__name__)
 RTSP_STREAMS = load_rtsp_config(RTSP_CONFIG_PATH)
+MIN_THRESHOLD, MAX_THRESHOLD = load_detector_thresholds(DETECTOR_CONFIG_PATH)
 repo = SignalRepository(DB_PATH)
-watcher = RedisWatcher(repo, RTSP_STREAMS)
+watcher = RedisWatcher(repo, RTSP_STREAMS, MIN_THRESHOLD, MAX_THRESHOLD)
 watcher.start()
 
 
@@ -357,6 +429,7 @@ def api_status() -> Response:
     return jsonify(
         {
             "timestamp_utc": utc_now_iso(),
+            "thresholds": {"min": MIN_THRESHOLD, "max": MAX_THRESHOLD},
             "redis": snapshot,
             "stats": stats,
         }
