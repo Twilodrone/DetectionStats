@@ -38,7 +38,15 @@ DETECTOR_CONFIG_PATH = Path(
     os.getenv("DETECTOR_CONFIG_PATH", "/home/sdp/Detector/serial/config.json")
 )
 
+CAM_IMAGE_FILENAMES = {
+    "Cam1": "cam_1.jpg",
+    "Cam2": "cam_2.jpg",
+    "Cam3": "cam_3.jpg",
+    "Cam4": "cam_4.jpg",
+}
+
 CAM_KEYS = ["Cam1", "Cam2", "Cam3", "Cam4"]
+
 IMAGE_SOURCES = {
     "pedestrian": PEDESTRIAN_PICTURES_DIR,
     "wheelchair": WHEELCHAIR_PICTURES_DIR,
@@ -311,8 +319,8 @@ class RedisWatcher:
     def _archive_event_image(self, event_id: int, source_name: str, cam_name: str) -> None:
         event_dir = EVENT_ARCHIVE_DIR / f"event_{event_id}" / source_name
         event_dir.mkdir(parents=True, exist_ok=True)
-        src = IMAGE_SOURCES[source_name] / f"{cam_name}.jpg"
-        dst = event_dir / f"{cam_name}.jpg"
+        src = IMAGE_SOURCES[source_name] / CAM_IMAGE_FILENAMES.get(cam_name, f"{cam_name}.jpg")
+        dst = event_dir / CAM_IMAGE_FILENAMES.get(cam_name, f"{cam_name}.jpg")
         if src.exists():
             shutil.copy2(src, dst)
         else:
@@ -475,7 +483,7 @@ def camera_image(source_name: str, cam_name: str):
     if source_name not in IMAGE_SOURCES:
         return jsonify({"error": "Unknown image source"}), 404
 
-    image_path = IMAGE_SOURCES[source_name] / f"{cam_name}.jpg"
+    image_path = IMAGE_SOURCES[source_name] / CAM_IMAGE_FILENAMES.get(cam_name, f"{cam_name}.jpg")
     return send_image_with_fallback(image_path)
 
 
@@ -491,7 +499,7 @@ def archived_event_camera_image(event_id: int, source_name: str, cam_name: str):
     if source_name not in IMAGE_SOURCES:
         return jsonify({"error": "Unknown image source"}), 404
 
-    image_path = EVENT_ARCHIVE_DIR / f"event_{event_id}" / source_name / f"{cam_name}.jpg"
+    image_path = EVENT_ARCHIVE_DIR / f"event_{event_id}" / source_name / CAM_IMAGE_FILENAMES.get(cam_name, f"{cam_name}.jpg")
     return send_image_with_fallback(image_path)
 
 
