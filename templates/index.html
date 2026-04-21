@@ -133,10 +133,28 @@
 
     <script>
       let lastRenderedEventId = null;
+      const DISPLAY_TIMEZONE = 'Europe/Moscow';
+
+      function formatDisplayDateTime(tsUtc) {
+        if (!tsUtc) return '—';
+        const date = new Date(tsUtc);
+        if (Number.isNaN(date.getTime())) return '—';
+        const formatter = new Intl.DateTimeFormat('ru-RU', {
+          timeZone: DISPLAY_TIMEZONE,
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        });
+        return formatter.format(date);
+      }
 
       function renderEventMeta(event) {
         const latestMeta = document.getElementById('latestMeta');
-        latestMeta.innerHTML = `ID: <strong>${event.id}</strong> · Время: <strong>${new Date(event.ts_utc).toLocaleString()}</strong> · Signal: <strong>${event.signal_value}</strong>`;
+        latestMeta.innerHTML = `ID: <strong>${event.id}</strong> · Время: <strong>${formatDisplayDateTime(event.ts_utc)}</strong> · Signal: <strong>${event.signal_value}</strong>`;
       }
 
       function renderEventImages(event) {
@@ -194,7 +212,7 @@
 
         document.getElementById('totalTriggers').textContent = status.stats.total_triggers;
         document.getElementById('lastTrigger').textContent = status.stats.last_trigger_utc
-          ? new Date(status.stats.last_trigger_utc).toLocaleString()
+          ? formatDisplayDateTime(status.stats.last_trigger_utc)
           : '—';
 
         if (!eventsData.events.length) {
