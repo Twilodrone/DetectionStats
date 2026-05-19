@@ -127,7 +127,7 @@
     </div>
 
     <div class="image-section">
-      <h3 class="section-title">Кадр, вызвавший удлинение фазы</h3>
+      <h3 class="section-title" id="triggerSectionTitle">Кадр-триггер</h3>
       <div id="latestTriggerImage" class="grid"></div>
     </div>
 
@@ -167,15 +167,28 @@
 
         const triggerCam = event.payload.trigger_cam;
         const triggerSource = event.payload.trigger_source;
+        const titleBySource = {
+          pedestrian: 'Зафиксировано более n человек',
+          wheelchair: 'Зафиксированы маломобильные',
+          child: 'Зафиксированы дети',
+        };
+        const sourceNameBySource = {
+          pedestrian: 'Пешеходы',
+          wheelchair: 'Маломобильные',
+          child: 'Дети',
+        };
         const people = event.payload[`${triggerCam}_count`] ?? 0;
         const wheelchair = event.payload[`${triggerCam}_wheelchair_cnt`] ?? 0;
+        const child = event.payload[`${triggerCam}_child_count`] ?? 0;
+        document.getElementById('triggerSectionTitle').textContent = titleBySource[triggerSource] ?? 'Кадр-триггер';
         const summary = document.createElement('div');
         summary.className = 'summary-card';
         summary.innerHTML = `
           <div><strong>${triggerCam}</strong></div>
-          <div>Источник: ${triggerSource === 'pedestrian' ? 'Пешеходы' : 'Маломобильные'}</div>
+          <div>Источник: ${sourceNameBySource[triggerSource] ?? triggerSource}</div>
           <div>Людей: ${people}</div>
           <div>Маломобильные: ${wheelchair}</div>
+          <div>Дети: ${child}</div>
         `;
         summaryGrid.appendChild(summary);
 
@@ -183,7 +196,7 @@
           const triggerCard = document.createElement('div');
           triggerCard.className = 'card';
           triggerCard.innerHTML = `
-            <div class="camera-title">${triggerCam} · ${triggerSource === 'pedestrian' ? 'Пешеходы' : 'Маломобильные'}</div>
+            <div class="camera-title">${triggerCam} · ${sourceNameBySource[triggerSource] ?? triggerSource}</div>
             <img class="camera-image" src="/api/events/${event.id}/camera/${triggerSource}/${triggerCam}.jpg" alt="${triggerSource} ${triggerCam}" />
           `;
           latestTriggerImage.appendChild(triggerCard);

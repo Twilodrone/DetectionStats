@@ -26,6 +26,9 @@ PEDESTRIAN_PICTURES_DIR = Path(
 WHEELCHAIR_PICTURES_DIR = Path(
     os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/Detector/pictures/wheelchair")
 )
+CHILD_PICTURES_DIR = Path(
+    os.getenv("CHILD_PICTURES_DIR", "/home/sdp/Detector/pictures/child")
+)
 ERROR_IMAGE_PATH = Path(
     os.getenv("ERROR_IMAGE_PATH", "/home/sdp/Detector/pictures/error.jpg")
 )
@@ -50,6 +53,7 @@ CAM_KEYS = ["Cam1", "Cam2", "Cam3", "Cam4"]
 IMAGE_SOURCES = {
     "pedestrian": PEDESTRIAN_PICTURES_DIR,
     "wheelchair": WHEELCHAIR_PICTURES_DIR,
+    "child": CHILD_PICTURES_DIR,
 }
 REDIS_KEYS = [
     "Signal",
@@ -61,6 +65,10 @@ REDIS_KEYS = [
     "Cam2_wheelchair_cnt",
     "Cam3_wheelchair_cnt",
     "Cam4_wheelchair_cnt",
+    "Cam1_child_count",
+    "Cam2_child_count",
+    "Cam3_child_count",
+    "Cam4_child_count",
 ]
 
 
@@ -257,6 +265,7 @@ class RedisWatcher:
         self._previous_wheelchair_present_by_cam: dict[str, bool] = {
             cam: False for cam in CAM_KEYS
         }
+        self._previous_child_present_by_cam: dict[str, bool] = {cam: False for cam in CAM_KEYS}
 
     def start(self) -> None:
         self._thread.start()
@@ -347,6 +356,7 @@ class RedisWatcher:
     ) -> None:
         people_count = values.get(f"{cam_name}_count", 0)
         wheelchair_count = values.get(f"{cam_name}_wheelchair_cnt", 0)
+        child_count = values.get(f"{cam_name}_child_count", 0)
         event_payload = {
             "min_threshold": self.min_threshold,
             "max_threshold": self.max_threshold,
@@ -355,7 +365,12 @@ class RedisWatcher:
             "Signal": values.get("Signal", 0),
             f"{cam_name}_count": people_count,
             f"{cam_name}_wheelchair_cnt": wheelchair_count,
-            "trigger_value": people_count if source_name == "pedestrian" else wheelchair_count,
+            f"{cam_name}_child_count": child_count,
+            "trigger_value": (
+                people_count
+                if source_name == "pedestrian"
+                else wheelchair_count if source_name == "wheelchair" else child_count
+            ),
         }
         event_id = self.repo.add_event(
             payload=event_payload,
@@ -373,8 +388,10 @@ class RedisWatcher:
                 for cam_name in CAM_KEYS:
                     people_count = values.get(f"{cam_name}_count", 0)
                     wheelchair_count = values.get(f"{cam_name}_wheelchair_cnt", 0)
+                    child_count = values.get(f"{cam_name}_child_count", 0)
                     people_overflow = people_count > self.max_threshold
                     wheelchair_present = wheelchair_count > 0
+                    child_present = child_count > 0
 
                     if people_overflow and not self._previous_people_overflow_by_cam[cam_name]:
                         self._create_single_camera_event(values, cam_name, "pedestrian")
@@ -384,9 +401,12 @@ class RedisWatcher:
                         and not self._previous_wheelchair_present_by_cam[cam_name]
                     ):
                         self._create_single_camera_event(values, cam_name, "wheelchair")
+                    if child_present and not self._previous_child_present_by_cam[cam_name]:
+                        self._create_single_camera_event(values, cam_name, "child")
 
                     self._previous_people_overflow_by_cam[cam_name] = people_overflow
                     self._previous_wheelchair_present_by_cam[cam_name] = wheelchair_present
+                    self._previous_child_present_by_cam[cam_name] = child_present
             except redis.RedisError:
                 self._last_redis_ok = False
             time.sleep(POLL_INTERVAL_SECONDS)
