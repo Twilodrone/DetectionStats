@@ -101,7 +101,8 @@
   </head>
   <body>
     <header>
-      <h2 style="margin: 0 0 6px 0">DetectionStats Dashboard</h2>
+      <!-- <h2 style="margin: 0 0 6px 0">Детектор 630</h2> -->
+      <h2 style="margin: 0 0 6px 0">Детектор 646</h2>
       <div class="tabs">
         <a class="tab active" href="/">Последнее срабатывание</a>
         <a class="tab" href="/archive">Архив срабатываний</a>
@@ -168,7 +169,7 @@
         const triggerCam = event.payload.trigger_cam;
         const triggerSource = event.payload.trigger_source;
         const titleBySource = {
-          pedestrian: 'Зафиксировано более n человек',
+          pedestrian: 'Зафиксировано более {{ max }} человек',
           wheelchair: 'Зафиксированы маломобильные',
           child: 'Зафиксированы дети',
         };

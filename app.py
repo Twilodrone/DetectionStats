@@ -455,7 +455,7 @@ watcher.start()
 
 @app.route("/")
 def index() -> str:
-    return render_template("index.html", cams=CAM_KEYS)
+    return render_template("index.html", cams=CAM_KEYS, max=MAX_THRESHOLD)
 
 
 @app.route("/archive")
