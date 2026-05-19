@@ -20,33 +20,66 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", "2"))
 DB_PATH = os.getenv("DB_PATH", "signal_events.db")
+
+#region 630
+# PEDESTRIAN_PICTURES_DIR = Path(
+#     os.getenv("PEDESTRIAN_PICTURES_DIR", "/home/sdp/Detector/pictures/pedestrian")
+# )
+# WHEELCHAIR_PICTURES_DIR = Path(
+#     os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/Detector/pictures/wheelchair")
+# )
+# CHILD_PICTURES_DIR = Path(
+#     os.getenv("CHILD_PICTURES_DIR", "/home/sdp/Detector/pictures/child")
+# )
+# ERROR_IMAGE_PATH = Path(
+#     os.getenv("ERROR_IMAGE_PATH", "/home/sdp/Detector/pictures/error.jpg")
+# )
+# DETECTOR_CONFIG_PATH = Path(
+#     os.getenv("DETECTOR_CONFIG_PATH", "/home/sdp/Detector/serial/config.json")
+# )
+#endregion
+
+#region 646
 PEDESTRIAN_PICTURES_DIR = Path(
-    os.getenv("PEDESTRIAN_PICTURES_DIR", "/home/sdp/Detector/pictures/pedestrian")
+    os.getenv("PEDESTRIAN_PICTURES_DIR", "/home/sdp/tracker.dist/outputs")
 )
 WHEELCHAIR_PICTURES_DIR = Path(
-    os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/Detector/pictures/wheelchair")
+    os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/tracker.dist/outputs")
 )
 CHILD_PICTURES_DIR = Path(
     os.getenv("CHILD_PICTURES_DIR", "/home/sdp/Detector/pictures/child")
 )
 ERROR_IMAGE_PATH = Path(
-    os.getenv("ERROR_IMAGE_PATH", "/home/sdp/Detector/pictures/error.jpg")
+    os.getenv("ERROR_IMAGE_PATH", "/home/sdp/Pictures/error.jpg")
 )
+DETECTOR_CONFIG_PATH = Path(
+    os.getenv("DETECTOR_CONFIG_PATH", "/home/sdp/serial/config.json")
+)
+#endregion
+
 EVENT_ARCHIVE_DIR = Path(os.getenv("EVENT_ARCHIVE_DIR", "./event_archive"))
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 RTSP_CONFIG_PATH = Path(os.getenv("RTSP_CONFIG_PATH", "camera_streams.json"))
 RTSP_SNAPSHOT_TIMEOUT_SECONDS = float(os.getenv("RTSP_SNAPSHOT_TIMEOUT_SECONDS", "5"))
-DETECTOR_CONFIG_PATH = Path(
-    os.getenv("DETECTOR_CONFIG_PATH", "/home/sdp/Detector/serial/config.json")
-)
 
+#region 630
+# CAM_IMAGE_FILENAMES = {
+#     "Cam1": "Cam1.jpg",
+#     "Cam2": "Cam2.jpg",
+#     "Cam3": "Cam3.jpg",
+#     "Cam4": "Cam4.jpg",
+# }
+#endregion
+
+#region 646
 CAM_IMAGE_FILENAMES = {
     "Cam1": "cam_1.jpg",
     "Cam2": "cam_2.jpg",
     "Cam3": "cam_3.jpg",
     "Cam4": "cam_4.jpg",
 }
+#endregion 
 
 CAM_KEYS = ["Cam1", "Cam2", "Cam3", "Cam4"]
 
