@@ -85,16 +85,19 @@
       <div class="summary-grid">
         <div class="summary">
           <div><strong>{{ trigger_cam }}</strong></div>
-          <div>Источник: {{ "Пешеходы" if trigger_source == "pedestrian" else "Маломобильные" }}</div>
+          <div>Источник: {{ "Пешеходы" if trigger_source == "pedestrian" else ("Маломобильные" if trigger_source == "wheelchair" else "Дети") }}</div>
           <div>Людей: {{ event.payload.get(trigger_cam ~ '_count', 0) }}</div>
           <div>Маломобильные: {{ event.payload.get(trigger_cam ~ '_wheelchair_cnt', 0) }}</div>
+          <div>Дети: {{ event.payload.get(trigger_cam ~ '_child_count', 0) }}</div>
         </div>
       </div>
 
-      <h3 class="section-title">Кадр-триггер</h3>
+      <h3 class="section-title">
+        {{ "Зафиксировано более n человек" if trigger_source == "pedestrian" else ("Зафиксированы маломобильные" if trigger_source == "wheelchair" else "Зафиксированы дети") }}
+      </h3>
       <div class="grid">
         <div class="card">
-          <div class="camera-title">{{ trigger_cam }} · {{ "Пешеходы" if trigger_source == "pedestrian" else "Маломобильные" }}</div>
+          <div class="camera-title">{{ trigger_cam }} · {{ "Пешеходы" if trigger_source == "pedestrian" else ("Маломобильные" if trigger_source == "wheelchair" else "Дети") }}</div>
           <img class="camera-image" src="/api/events/{{ event.id }}/camera/{{ trigger_source }}/{{ trigger_cam }}.jpg" alt="Триггер {{ trigger_cam }}" />
         </div>
       </div>
