@@ -186,10 +186,14 @@ class SignalRepository:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     ts_utc TEXT NOT NULL,
                     signal_value INTEGER NOT NULL,
-                    payload_json TEXT NOT NULL
+                    payload_json TEXT NOT NULL,
+                    detection_accurate INTEGER
                 )
                 """
             )
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(signal_events)").fetchall()]
+            if "detection_accurate" not in columns:
+                conn.execute("ALTER TABLE signal_events ADD COLUMN detection_accurate INTEGER")
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_signal_events_ts
@@ -213,7 +217,7 @@ class SignalRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, ts_utc, signal_value, payload_json
+                SELECT id, ts_utc, signal_value, payload_json, detection_accurate
                 FROM signal_events
                 ORDER BY id DESC
                 LIMIT ?
@@ -230,6 +234,7 @@ class SignalRepository:
                     "ts_utc": row["ts_utc"],
                     "signal_value": row["signal_value"],
                     "payload": payload,
+                    "detection_accurate": row["detection_accurate"],
                 }
             )
         return events
@@ -238,7 +243,7 @@ class SignalRepository:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, ts_utc, signal_value, payload_json
+                SELECT id, ts_utc, signal_value, payload_json, detection_accurate
                 FROM signal_events
                 WHERE id = ?
                 LIMIT 1
@@ -254,7 +259,18 @@ class SignalRepository:
             "ts_utc": row["ts_utc"],
             "signal_value": row["signal_value"],
             "payload": json.loads(row["payload_json"]),
+            "detection_accurate": row["detection_accurate"],
         }
+
+    def set_detection_accurate(self, event_id: int, detection_accurate: bool) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                cur = conn.execute(
+                    "UPDATE signal_events SET detection_accurate = ? WHERE id = ?",
+                    (1 if detection_accurate else 0, event_id),
+                )
+                conn.commit()
+                return cur.rowcount > 0
 
     def get_stats(self) -> dict[str, Any]:
         with self._connect() as conn:
@@ -504,17 +520,27 @@ def api_events() -> Response:
     limit = request.args.get("limit", default=50, type=int)
     wheelchair_gt_zero = request.args.get("wheelchair_gt_zero", default=0, type=int) == 1
     any_cam_count_gt = request.args.get("any_cam_count_gt", type=int)
+    child_gt_zero = request.args.get("child_gt_zero", default=0, type=int) == 1
+    trigger_source = request.args.get("trigger_source", type=str)
+    detection_accurate = request.args.get("detection_accurate", type=int)
 
     events = repo.get_recent_events(limit=limit)
     filtered_events: list[dict[str, Any]] = []
     for event in events:
         payload = event.get("payload", {})
         total_wheelchair_cnt = sum(int(payload.get(f"{cam}_wheelchair_cnt", 0)) for cam in CAM_KEYS)
+        total_child_cnt = sum(int(payload.get(f"{cam}_child_count", 0)) for cam in CAM_KEYS)
         any_cam_pedestrians = max(int(payload.get(f"{cam}_count", 0)) for cam in CAM_KEYS)
 
         if wheelchair_gt_zero and total_wheelchair_cnt <= 0:
             continue
         if any_cam_count_gt is not None and any_cam_pedestrians <= any_cam_count_gt:
+            continue
+        if child_gt_zero and total_child_cnt <= 0:
+            continue
+        if trigger_source and payload.get("trigger_source") != trigger_source:
+            continue
+        if detection_accurate in (0, 1) and event.get("detection_accurate") != detection_accurate:
             continue
         filtered_events.append(event)
 
@@ -527,6 +553,21 @@ def api_event_by_id(event_id: int) -> Response:
     if event is None:
         return jsonify({"error": "Event not found"}), 404
     return jsonify(event)
+
+
+@app.route("/api/events/<int:event_id>/accuracy", methods=["POST"])
+def api_set_event_accuracy(event_id: int) -> Response:
+    from flask import request
+
+    body = request.get_json(silent=True) or {}
+    detection_accurate = body.get("detection_accurate")
+    if not isinstance(detection_accurate, bool):
+        return jsonify({"error": "Field detection_accurate must be boolean"}), 400
+
+    updated = repo.set_detection_accurate(event_id, detection_accurate)
+    if not updated:
+        return jsonify({"error": "Event not found"}), 404
+    return jsonify({"ok": True, "detection_accurate": 1 if detection_accurate else 0})
 
 
 @app.route("/api/camera/<source_name>/<cam_name>.jpg")

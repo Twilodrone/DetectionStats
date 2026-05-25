@@ -218,7 +218,7 @@
       async function tick() {
         const [statusRes, eventsRes] = await Promise.all([
           fetch('/api/status'),
-          fetch('/api/events?limit=1'),
+          fetch('/api/events?limit=1&trigger_source=pedestrian'),
         ]);
 
         const status = await statusRes.json();
