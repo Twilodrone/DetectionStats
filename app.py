@@ -272,11 +272,21 @@ class SignalRepository:
                 conn.commit()
                 return cur.rowcount > 0
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self, trigger_source: str | None = None) -> dict[str, Any]:
+        where_clause = ""
+        params: tuple[Any, ...] = ()
+        if trigger_source:
+            where_clause = " WHERE payload_json LIKE ?"
+            params = (f'%"trigger_source": "{trigger_source}"%',)
+
         with self._connect() as conn:
-            total = conn.execute("SELECT COUNT(*) FROM signal_events").fetchone()[0]
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM signal_events{where_clause}",
+                params,
+            ).fetchone()[0]
             last = conn.execute(
-                "SELECT ts_utc FROM signal_events ORDER BY id DESC LIMIT 1"
+                f"SELECT ts_utc FROM signal_events{where_clause} ORDER BY id DESC LIMIT 1",
+                params,
             ).fetchone()
 
         return {
@@ -502,7 +512,7 @@ def luci_compat_redirect() -> Response:
 @app.route("/api/status")
 def api_status() -> Response:
     snapshot = watcher.get_snapshot()
-    stats = repo.get_stats()
+    stats = repo.get_stats(trigger_source="pedestrian")
     return jsonify(
         {
             "timestamp_utc": utc_now_iso(),
