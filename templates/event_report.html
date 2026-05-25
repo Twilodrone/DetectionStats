@@ -63,6 +63,9 @@
       .muted {
         color: #94a3b8;
       }
+      .accuracy-box {
+        margin-top: 12px;
+      }
       @media (max-width: 900px) {
         .grid { grid-template-columns: 1fr; }
         .summary-grid { grid-template-columns: 1fr; }
@@ -74,13 +77,22 @@
       <h2 style="margin: 0;">Отчет по срабатыванию #{{ event.id }}</h2>
       <div style="margin-top: 8px;"><a href="/archive">← Назад к списку</a></div>
 
+      {% set trigger_cam = event.payload.get('trigger_cam') %}
+      {% set trigger_source = event.payload.get('trigger_source') %}
       <div class="summary">
         <div><strong>Время:</strong> <span id="eventTime">—</span> <span class="muted">(UTC+3)</span></div>
         <div><strong>Signal:</strong> {{ event.signal_value }}</div>
+        {% if trigger_source in ["wheelchair", "child"] %}
+        <div class="accuracy-box">
+          <label>
+            <input type="checkbox" id="accuracyCheckbox" {% if event.detection_accurate == 1 %}checked{% endif %} />
+            Детекция точна
+          </label>
+          <span id="accuracyStatus" class="muted" style="margin-left: 8px;"></span>
+        </div>
+        {% endif %}
       </div>
 
-      {% set trigger_cam = event.payload.get('trigger_cam') %}
-      {% set trigger_source = event.payload.get('trigger_source') %}
       {% if trigger_cam and trigger_source %}
       <div class="summary-grid">
         <div class="summary">
@@ -126,6 +138,27 @@
       }
 
       document.getElementById('eventTime').textContent = formatDisplayDateTime({{ event.ts_utc|tojson }});
+      const accuracyCheckbox = document.getElementById('accuracyCheckbox');
+      if (accuracyCheckbox) {
+        const statusEl = document.getElementById('accuracyStatus');
+        accuracyCheckbox.addEventListener('change', async () => {
+          statusEl.textContent = 'Сохранение...';
+          try {
+            const resp = await fetch('/api/events/{{ event.id }}/accuracy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ detection_accurate: accuracyCheckbox.checked }),
+            });
+            if (!resp.ok) {
+              throw new Error(`HTTP ${resp.status}`);
+            }
+            statusEl.textContent = 'Сохранено';
+          } catch (e) {
+            statusEl.textContent = 'Ошибка сохранения';
+            console.error('Accuracy update error', e);
+          }
+        });
+      }
     </script>
   </body>
 </html>

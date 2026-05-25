@@ -96,6 +96,14 @@
           Маломобильные &gt; 0
         </label>
         <label>
+          <input type="checkbox" id="filterChildGtZero" />
+          Дети &gt; 0
+        </label>
+        <label>
+          <input type="checkbox" id="filterDetectionAccurate" />
+          Детекция точна
+        </label>
+        <label>
           Пешеходы на любой из камер &gt;
           <input type="number" id="filterAnyCamCountGt" min="0" step="1" placeholder="n" />
         </label>
@@ -110,6 +118,8 @@
             <th>Cam3</th>
             <th>Cam4</th>
             <th>Маломобильные</th>
+            <th>Дети</th>
+            <th>Детекция точна</th>
           </tr>
         </thead>
         <tbody id="eventsBody"></tbody>
@@ -138,11 +148,19 @@
 
       function buildEventsUrl() {
         const wheelchairGtZero = document.getElementById('filterWheelchairGtZero').checked;
+        const childGtZero = document.getElementById('filterChildGtZero').checked;
+        const detectionAccurate = document.getElementById('filterDetectionAccurate').checked;
         const anyCamCountGtRaw = document.getElementById('filterAnyCamCountGt').value;
         const params = new URLSearchParams();
         params.set('limit', '50');
         if (wheelchairGtZero) {
           params.set('wheelchair_gt_zero', '1');
+        }
+        if (childGtZero) {
+          params.set('child_gt_zero', '1');
+        }
+        if (detectionAccurate) {
+          params.set('detection_accurate', '1');
         }
         if (anyCamCountGtRaw !== '') {
           params.set('any_cam_count_gt', String(Math.max(0, Number(anyCamCountGtRaw) || 0)));
@@ -166,6 +184,13 @@
             (event.payload.Cam2_wheelchair_cnt ?? 0) +
             (event.payload.Cam3_wheelchair_cnt ?? 0) +
             (event.payload.Cam4_wheelchair_cnt ?? 0);
+          const childTotal =
+            (event.payload.Cam1_child_count ?? 0) +
+            (event.payload.Cam2_child_count ?? 0) +
+            (event.payload.Cam3_child_count ?? 0) +
+            (event.payload.Cam4_child_count ?? 0);
+          const detectionAccurateText =
+            event.detection_accurate === 1 ? 'Да' : (event.detection_accurate === 0 ? 'Нет' : '—');
 
           const tr = document.createElement('tr');
           tr.innerHTML = `
@@ -176,6 +201,8 @@
             <td>${cam3}</td>
             <td>${cam4}</td>
             <td>${wheelchairTotal}</td>
+            <td>${childTotal}</td>
+            <td>${detectionAccurateText}</td>
           `;
           tr.addEventListener('click', () => {
             window.location.href = `/events/${event.id}`;
@@ -185,6 +212,12 @@
       }
 
       document.getElementById('filterWheelchairGtZero').addEventListener('change', () => {
+        refreshEvents().catch((e) => console.error('Refresh error', e));
+      });
+      document.getElementById('filterChildGtZero').addEventListener('change', () => {
+        refreshEvents().catch((e) => console.error('Refresh error', e));
+      });
+      document.getElementById('filterDetectionAccurate').addEventListener('change', () => {
         refreshEvents().catch((e) => console.error('Refresh error', e));
       });
       document.getElementById('filterAnyCamCountGt').addEventListener('input', () => {
