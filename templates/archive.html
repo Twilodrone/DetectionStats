@@ -27,7 +27,8 @@
   </head>
   <body>
     <header>
-      <h2 style="margin: 0 0 6px 0">DetectionStats Dashboard</h2>
+      <h2 style="margin: 0 0 6px 0">Архив 646</h2>
+      <!-- <h2 style="margin: 0 0 6px 0">Архив 630</h2> -->
       <div class="tabs">
         <a class="tab" href="/">Последнее срабатывание</a>
         <a class="tab active" href="/archive">Архив срабатываний</a>
@@ -66,7 +67,7 @@
       function setAuthUiState() {
         document.getElementById('authStatus').textContent = archiveAuthenticated
           ? 'Полный архив доступен'
-          : 'Доступен только архив пешеходов';
+          : 'Войдите для доступа к панели отладки';
         document.getElementById('logoutBtn').style.display = archiveAuthenticated ? 'inline-block' : 'none';
       }
 
