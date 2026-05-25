@@ -577,7 +577,19 @@ def api_events() -> Response:
         trigger_source = "pedestrian"
     detection_accurate = request.args.get("detection_accurate", type=int)
 
-    events = repo.get_recent_events(limit=limit)
+    safe_limit = max(1, min(limit, 500))
+    has_filters = any(
+        [
+            wheelchair_gt_zero,
+            any_cam_count_gt is not None,
+            child_gt_zero,
+            bool(trigger_source),
+            detection_accurate in (0, 1),
+        ]
+    )
+    scan_limit = 500 if has_filters else safe_limit
+
+    events = repo.get_recent_events(limit=scan_limit)
     filtered_events: list[dict[str, Any]] = []
     for event in events:
         payload = event.get("payload", {})
@@ -596,6 +608,8 @@ def api_events() -> Response:
         if detection_accurate in (0, 1) and event.get("detection_accurate") != detection_accurate:
             continue
         filtered_events.append(event)
+        if len(filtered_events) >= safe_limit:
+            break
 
     return jsonify({"events": filtered_events})
 
