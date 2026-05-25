@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import redis
-from flask import Flask, Response, jsonify, redirect, render_template, send_file, url_for
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, session, url_for
 
 
 REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
@@ -60,6 +60,8 @@ DETECTOR_CONFIG_PATH = Path(
 EVENT_ARCHIVE_DIR = Path(os.getenv("EVENT_ARCHIVE_DIR", "./event_archive"))
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
+ARCHIVE_PASSWORD = os.getenv("ARCHIVE_PASSWORD", "")
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "change-me")
 RTSP_CONFIG_PATH = Path(os.getenv("RTSP_CONFIG_PATH", "camera_streams.json"))
 RTSP_SNAPSHOT_TIMEOUT_SECONDS = float(os.getenv("RTSP_SNAPSHOT_TIMEOUT_SECONDS", "5"))
 
@@ -472,11 +474,24 @@ class RedisWatcher:
 
 
 app = Flask(__name__)
+app.secret_key = SESSION_SECRET_KEY
 RTSP_STREAMS = load_rtsp_config(RTSP_CONFIG_PATH)
 MIN_THRESHOLD, MAX_THRESHOLD = load_detector_thresholds(DETECTOR_CONFIG_PATH)
 repo = SignalRepository(DB_PATH)
 watcher = RedisWatcher(repo, RTSP_STREAMS, MIN_THRESHOLD, MAX_THRESHOLD)
 watcher.start()
+
+def is_archive_authenticated() -> bool:
+    return bool(session.get("archive_authenticated", False))
+
+
+def event_is_pedestrian(event: dict[str, Any]) -> bool:
+    payload = event.get("payload", {})
+    return payload.get("trigger_source") == "pedestrian"
+
+
+def require_archive_auth_for_event(event: dict[str, Any]) -> bool:
+    return is_archive_authenticated() or event_is_pedestrian(event)
 
 
 @app.route("/")
@@ -486,7 +501,33 @@ def index() -> str:
 
 @app.route("/archive")
 def archive() -> str:
-    return render_template("archive.html")
+    return render_template("archive.html", archive_authenticated=is_archive_authenticated())
+
+
+@app.route("/api/archive-auth", methods=["POST"])
+def api_archive_auth() -> Response:
+    body = request.get_json(silent=True) or {}
+    password = body.get("password")
+    if not isinstance(password, str):
+        return jsonify({"error": "Field password must be string"}), 400
+
+    if not ARCHIVE_PASSWORD or password != ARCHIVE_PASSWORD:
+        session["archive_authenticated"] = False
+        return jsonify({"ok": False}), 401
+
+    session["archive_authenticated"] = True
+    return jsonify({"ok": True})
+
+
+@app.route("/api/archive-auth/logout", methods=["POST"])
+def api_archive_logout() -> Response:
+    session["archive_authenticated"] = False
+    return jsonify({"ok": True})
+
+
+@app.route("/api/archive-auth/status")
+def api_archive_auth_status() -> Response:
+    return jsonify({"authenticated": is_archive_authenticated()})
 
 
 @app.route("/live")
@@ -499,6 +540,8 @@ def event_report(event_id: int):
     event = repo.get_event_by_id(event_id)
     if event is None:
         return jsonify({"error": "Event not found"}), 404
+    if not require_archive_auth_for_event(event):
+        return jsonify({"error": "Forbidden"}), 403
 
     return render_template("event_report.html", event=event, cams=CAM_KEYS)
 
@@ -525,13 +568,13 @@ def api_status() -> Response:
 
 @app.route("/api/events")
 def api_events() -> Response:
-    from flask import request
-
     limit = request.args.get("limit", default=50, type=int)
     wheelchair_gt_zero = request.args.get("wheelchair_gt_zero", default=0, type=int) == 1
     any_cam_count_gt = request.args.get("any_cam_count_gt", type=int)
     child_gt_zero = request.args.get("child_gt_zero", default=0, type=int) == 1
     trigger_source = request.args.get("trigger_source", type=str)
+    if not is_archive_authenticated():
+        trigger_source = "pedestrian"
     detection_accurate = request.args.get("detection_accurate", type=int)
 
     events = repo.get_recent_events(limit=limit)
@@ -562,6 +605,8 @@ def api_event_by_id(event_id: int) -> Response:
     event = repo.get_event_by_id(event_id)
     if event is None:
         return jsonify({"error": "Event not found"}), 404
+    if not require_archive_auth_for_event(event):
+        return jsonify({"error": "Forbidden"}), 403
     return jsonify(event)
 
 
@@ -602,6 +647,12 @@ def archived_event_camera_image(event_id: int, source_name: str, cam_name: str):
         return jsonify({"error": "Unknown camera"}), 404
     if source_name not in IMAGE_SOURCES:
         return jsonify({"error": "Unknown image source"}), 404
+
+    event = repo.get_event_by_id(event_id)
+    if event is None:
+        return jsonify({"error": "Event not found"}), 404
+    if not require_archive_auth_for_event(event):
+        return jsonify({"error": "Forbidden"}), 403
 
     image_path = EVENT_ARCHIVE_DIR / f"event_{event_id}" / source_name / CAM_IMAGE_FILENAMES.get(cam_name, f"{cam_name}.jpg")
     return send_image_with_fallback(image_path)
