@@ -47,7 +47,7 @@ WHEELCHAIR_PICTURES_DIR = Path(
     os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/tracker.dist/outputs")
 )
 CHILD_PICTURES_DIR = Path(
-    os.getenv("CHILD_PICTURES_DIR", "/home/sdp/Detector/pictures/child")
+    os.getenv("CHILD_PICTURES_DIR", "/home/sdp/tracker.dist/outputs")
 )
 ERROR_IMAGE_PATH = Path(
     os.getenv("ERROR_IMAGE_PATH", "/home/sdp/Pictures/error.jpg")
