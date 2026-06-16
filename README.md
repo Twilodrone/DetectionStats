@@ -30,24 +30,60 @@ python app.py
 1. Скопируйте `camera_streams.json.example` в `camera_streams.json`.
 2. Заполните RTSP URL для камер `Cam1..Cam4`.
 
-## Конфигурация через переменные окружения
+## Конфигурация
 
-- `REDIS_HOST` (по умолчанию `127.0.0.1`)
-- `REDIS_PORT` (по умолчанию `6379`)
-- `REDIS_DB` (по умолчанию `0`)
-- `POLL_INTERVAL_SECONDS` (по умолчанию `2`)
-- `DB_PATH` (по умолчанию `./signal_events.db`)
-- `CAMERA_PICTURES_DIR` (по умолчанию `/home/sdp/Detector/pictures`)
-- `EVENT_ARCHIVE_DIR` (по умолчанию `./event_archive`)
-- `WEB_HOST` (по умолчанию `0.0.0.0`)
-- `WEB_PORT` (по умолчанию `8080`)
-- `RTSP_CONFIG_PATH` (по умолчанию `./camera_streams.json`)
-- `RTSP_SNAPSHOT_TIMEOUT_SECONDS` (по умолчанию `5`, timeout на попытку снять RTSP-кадр для архива)
+Основные параметры приложения вынесены в `config.yaml`. По умолчанию приложение читает файл `config.yaml` из текущей директории. Для запуска с другим файлом задайте переменную окружения `APP_CONFIG_PATH`:
+
+```bash
+APP_CONFIG_PATH=/path/to/config.yaml python app.py
+```
+
+### Поля `config.yaml`
+
+#### `redis`
+
+- `host` — адрес Redis-сервера.
+- `port` — порт Redis-сервера.
+- `db` — номер базы Redis.
+- `poll_interval_seconds` — интервал опроса Redis в секундах.
+
+#### `paths`
+
+- `db_path` — путь к SQLite-базе событий.
+- `pedestrian_pictures_dir` — директория с актуальными кадрами для срабатываний по пешеходам.
+- `wheelchair_pictures_dir` — директория с актуальными кадрами для срабатываний по маломобильным.
+- `child_pictures_dir` — директория с актуальными кадрами для срабатываний по детям.
+- `error_image_path` — fallback-изображение, которое возвращается, если нужный кадр не найден.
+- `detector_config_path` — путь к JSON-конфигу детектора с порогами `min` и `max`.
+- `event_archive_dir` — директория, куда сохраняются архивные кадры событий.
+
+#### `web`
+
+- `host` — адрес, на котором запускается Flask-приложение.
+- `port` — порт веб-интерфейса.
+- `archive_password` — пароль для доступа к закрытым разделам архива; пустая строка отключает успешную авторизацию по паролю.
+- `session_secret_key` — секретный ключ Flask-сессий; в production замените значение по умолчанию.
+
+#### `rtsp`
+
+- `config_path` — путь к JSON-файлу с RTSP URL камер `Cam1..Cam4`.
+- `snapshot_timeout_seconds` — timeout на попытку снять RTSP-кадр для архива.
+
+#### `cameras`
+
+- `keys` — список поддерживаемых камер; эти имена используются в Redis-ключах, API и шаблонах.
+- `image_filenames` — соответствие имени камеры имени JPEG-файла на диске.
+
+#### `detection`
+
+- `threshold_defaults.min` — резервное значение минимального порога фазы, если JSON-конфиг детектора недоступен или некорректен.
+- `threshold_defaults.max` — резервное значение максимального порога фазы, если JSON-конфиг детектора недоступен или некорректен.
+- `redis_keys` — список Redis-ключей, которые приложение читает при каждом опросе.
 
 ## Логика срабатываний
 
 Срабатывание создается отдельно по каждой камере при новом входе в одно из состояний:
-- `CamX_count > max` из `/home/sdp/Detector/serial/config.json`;
+- `CamX_count > max` из JSON-файла, указанного в `paths.detector_config_path`;
 - `CamX_wheelchair_cnt > 0`.
 
 В момент срабатывания:

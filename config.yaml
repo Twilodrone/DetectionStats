@@ -1,0 +1,55 @@
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 0
+  poll_interval_seconds: 2
+
+paths:
+  db_path: signal_events.db
+  pedestrian_pictures_dir: /home/sdp/tracker.dist/outputs
+  wheelchair_pictures_dir: /home/sdp/tracker.dist/outputs
+  child_pictures_dir: /home/sdp/tracker.dist/outputs
+  error_image_path: /home/sdp/Pictures/error.jpg
+  detector_config_path: /home/sdp/serial/config.json
+  event_archive_dir: ./event_archive
+
+web:
+  host: 0.0.0.0
+  port: 8080
+  archive_password: ""
+  session_secret_key: change-me
+
+rtsp:
+  config_path: camera_streams.json
+  snapshot_timeout_seconds: 5
+
+cameras:
+  keys:
+    - Cam1
+    - Cam2
+    - Cam3
+    - Cam4
+  image_filenames:
+    Cam1: cam_1.jpg
+    Cam2: cam_2.jpg
+    Cam3: cam_3.jpg
+    Cam4: cam_4.jpg
+
+detection:
+  threshold_defaults:
+    min: 6
+    max: 7
+  redis_keys:
+    - Signal
+    - Cam1_count
+    - Cam2_count
+    - Cam3_count
+    - Cam4_count
+    - Cam1_wheelchair_cnt
+    - Cam2_wheelchair_cnt
+    - Cam3_wheelchair_cnt
+    - Cam4_wheelchair_cnt
+    - Cam1_child_count
+    - Cam2_child_count
+    - Cam3_child_count
+    - Cam4_child_count
