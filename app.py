@@ -15,97 +15,176 @@ import redis
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, session, url_for
 
 
-REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", "2"))
-DB_PATH = os.getenv("DB_PATH", "signal_events.db")
+CONFIG_PATH = Path(os.getenv("APP_CONFIG_PATH", "config.yaml"))
 
-#region 630
-# PEDESTRIAN_PICTURES_DIR = Path(
-#     os.getenv("PEDESTRIAN_PICTURES_DIR", "/home/sdp/Detector/pictures/pedestrian")
-# )
-# WHEELCHAIR_PICTURES_DIR = Path(
-#     os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/Detector/pictures/wheelchair")
-# )
-# CHILD_PICTURES_DIR = Path(
-#     os.getenv("CHILD_PICTURES_DIR", "/home/sdp/Detector/pictures/child")
-# )
-# ERROR_IMAGE_PATH = Path(
-#     os.getenv("ERROR_IMAGE_PATH", "/home/sdp/Detector/pictures/error.jpg")
-# )
-# DETECTOR_CONFIG_PATH = Path(
-#     os.getenv("DETECTOR_CONFIG_PATH", "/home/sdp/Detector/serial/config.json")
-# )
-#endregion
 
-#region 646
-PEDESTRIAN_PICTURES_DIR = Path(
-    os.getenv("PEDESTRIAN_PICTURES_DIR", "/home/sdp/tracker.dist/outputs")
-)
-WHEELCHAIR_PICTURES_DIR = Path(
-    os.getenv("WHEELCHAIR_PICTURES_DIR", "/home/sdp/tracker.dist/outputs")
-)
-CHILD_PICTURES_DIR = Path(
-    os.getenv("CHILD_PICTURES_DIR", "/home/sdp/tracker.dist/outputs")
-)
-ERROR_IMAGE_PATH = Path(
-    os.getenv("ERROR_IMAGE_PATH", "/home/sdp/Pictures/error.jpg")
-)
-DETECTOR_CONFIG_PATH = Path(
-    os.getenv("DETECTOR_CONFIG_PATH", "/home/sdp/serial/config.json")
-)
-#endregion
+def parse_yaml_scalar(value: str) -> Any:
+    value = value.strip()
+    if value in {"''", '""'}:
+        return ""
+    if (value.startswith('\"') and value.endswith('\"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
+        return value[1:-1]
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        return value
 
-EVENT_ARCHIVE_DIR = Path(os.getenv("EVENT_ARCHIVE_DIR", "./event_archive"))
-WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
-WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
-ARCHIVE_PASSWORD = os.getenv("ARCHIVE_PASSWORD", "")
-SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "change-me")
-RTSP_CONFIG_PATH = Path(os.getenv("RTSP_CONFIG_PATH", "camera_streams.json"))
-RTSP_SNAPSHOT_TIMEOUT_SECONDS = float(os.getenv("RTSP_SNAPSHOT_TIMEOUT_SECONDS", "5"))
 
-#region 630
-# CAM_IMAGE_FILENAMES = {
-#     "Cam1": "Cam1.jpg",
-#     "Cam2": "Cam2.jpg",
-#     "Cam3": "Cam3.jpg",
-#     "Cam4": "Cam4.jpg",
-# }
-#endregion
+def parse_simple_yaml_mapping(text: str) -> dict[str, Any]:
+    root: dict[str, Any] = {}
+    stack: list[tuple[int, dict[str, Any] | list[Any]]] = [(-1, root)]
+    pending_key: tuple[int, dict[str, Any], str] | None = None
 
-#region 646
-CAM_IMAGE_FILENAMES = {
-    "Cam1": "cam_1.jpg",
-    "Cam2": "cam_2.jpg",
-    "Cam3": "cam_3.jpg",
-    "Cam4": "cam_4.jpg",
-}
-#endregion 
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
 
-CAM_KEYS = ["Cam1", "Cam2", "Cam3", "Cam4"]
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        line = raw_line.strip()
+
+        while stack and indent <= stack[-1][0]:
+            stack.pop()
+
+        parent = stack[-1][1]
+        if line.startswith("- "):
+            if not isinstance(parent, list):
+                if pending_key is None or indent <= pending_key[0]:
+                    raise ValueError(f"Unexpected list item at config line {line_number}")
+                _, pending_parent, key = pending_key
+                parent = []
+                pending_parent[key] = parent
+                stack.append((indent - 1, parent))
+                pending_key = None
+            parent.append(parse_yaml_scalar(line[2:]))
+            continue
+
+        if not isinstance(parent, dict):
+            raise ValueError(f"Unexpected mapping item at config line {line_number}")
+        if ":" not in line:
+            raise ValueError(f"Expected key/value pair at config line {line_number}")
+
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ValueError(f"Empty key at config line {line_number}")
+        if value:
+            parent[key] = parse_yaml_scalar(value)
+            pending_key = None
+        else:
+            child: dict[str, Any] = {}
+            parent[key] = child
+            stack.append((indent, child))
+            pending_key = (indent, parent, key)
+
+    return root
+
+
+def load_yaml_config(config_path: Path) -> dict[str, Any]:
+    if not config_path.exists():
+        raise FileNotFoundError(f"Application config not found: {config_path}")
+
+    with config_path.open("r", encoding="utf-8") as fh:
+        raw = parse_simple_yaml_mapping(fh.read())
+
+    if not isinstance(raw, dict):
+        raise ValueError(f"Application config must be a YAML mapping: {config_path}")
+
+    return raw
+
+
+def config_section(config: dict[str, Any], section_name: str) -> dict[str, Any]:
+    section = config.get(section_name, {})
+    if not isinstance(section, dict):
+        raise ValueError(f"Config section '{section_name}' must be a mapping")
+    return section
+
+
+def string_config(section: dict[str, Any], key: str) -> str:
+    value = section.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"Config value '{key}' must be a string")
+    return value
+
+
+def int_config(section: dict[str, Any], key: str) -> int:
+    try:
+        return int(section[key])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Config value '{key}' must be an integer") from exc
+
+
+def float_config(section: dict[str, Any], key: str) -> float:
+    try:
+        return float(section[key])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Config value '{key}' must be a number") from exc
+
+
+def path_config(section: dict[str, Any], key: str) -> Path:
+    return Path(string_config(section, key))
+
+
+def string_list_config(section: dict[str, Any], key: str) -> list[str]:
+    value = section.get(key)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"Config value '{key}' must be a list of strings")
+    return value
+
+
+def string_dict_config(section: dict[str, Any], key: str) -> dict[str, str]:
+    value = section.get(key)
+    if not isinstance(value, dict) or not all(
+        isinstance(item_key, str) and isinstance(item_value, str)
+        for item_key, item_value in value.items()
+    ):
+        raise ValueError(f"Config value '{key}' must be a mapping of strings")
+    return dict(value)
+
+
+APP_CONFIG = load_yaml_config(CONFIG_PATH)
+REDIS_CONFIG = config_section(APP_CONFIG, "redis")
+PATHS_CONFIG = config_section(APP_CONFIG, "paths")
+WEB_CONFIG = config_section(APP_CONFIG, "web")
+RTSP_CONFIG = config_section(APP_CONFIG, "rtsp")
+CAMERAS_CONFIG = config_section(APP_CONFIG, "cameras")
+DETECTION_CONFIG = config_section(APP_CONFIG, "detection")
+THRESHOLDS_CONFIG = config_section(DETECTION_CONFIG, "threshold_defaults")
+
+REDIS_HOST = string_config(REDIS_CONFIG, "host")
+REDIS_PORT = int_config(REDIS_CONFIG, "port")
+REDIS_DB = int_config(REDIS_CONFIG, "db")
+POLL_INTERVAL_SECONDS = float_config(REDIS_CONFIG, "poll_interval_seconds")
+DB_PATH = string_config(PATHS_CONFIG, "db_path")
+PEDESTRIAN_PICTURES_DIR = path_config(PATHS_CONFIG, "pedestrian_pictures_dir")
+WHEELCHAIR_PICTURES_DIR = path_config(PATHS_CONFIG, "wheelchair_pictures_dir")
+CHILD_PICTURES_DIR = path_config(PATHS_CONFIG, "child_pictures_dir")
+ERROR_IMAGE_PATH = path_config(PATHS_CONFIG, "error_image_path")
+DETECTOR_CONFIG_PATH = path_config(PATHS_CONFIG, "detector_config_path")
+EVENT_ARCHIVE_DIR = path_config(PATHS_CONFIG, "event_archive_dir")
+WEB_HOST = string_config(WEB_CONFIG, "host")
+WEB_PORT = int_config(WEB_CONFIG, "port")
+ARCHIVE_PASSWORD = string_config(WEB_CONFIG, "archive_password")
+SESSION_SECRET_KEY = string_config(WEB_CONFIG, "session_secret_key")
+RTSP_CONFIG_PATH = path_config(RTSP_CONFIG, "config_path")
+RTSP_SNAPSHOT_TIMEOUT_SECONDS = float_config(RTSP_CONFIG, "snapshot_timeout_seconds")
+CAM_KEYS = string_list_config(CAMERAS_CONFIG, "keys")
+CAM_IMAGE_FILENAMES = string_dict_config(CAMERAS_CONFIG, "image_filenames")
+REDIS_KEYS = string_list_config(DETECTION_CONFIG, "redis_keys")
+PHASE_MIN_THRESHOLD_DEFAULT = int_config(THRESHOLDS_CONFIG, "min")
+PHASE_MAX_THRESHOLD_DEFAULT = int_config(THRESHOLDS_CONFIG, "max")
 
 IMAGE_SOURCES = {
     "pedestrian": PEDESTRIAN_PICTURES_DIR,
     "wheelchair": WHEELCHAIR_PICTURES_DIR,
     "child": CHILD_PICTURES_DIR,
 }
-REDIS_KEYS = [
-    "Signal",
-    "Cam1_count",
-    "Cam2_count",
-    "Cam3_count",
-    "Cam4_count",
-    "Cam1_wheelchair_cnt",
-    "Cam2_wheelchair_cnt",
-    "Cam3_wheelchair_cnt",
-    "Cam4_wheelchair_cnt",
-    "Cam1_child_count",
-    "Cam2_child_count",
-    "Cam3_child_count",
-    "Cam4_child_count",
-]
-
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -141,8 +220,8 @@ def load_rtsp_config(config_path: Path) -> dict[str, str]:
 
 
 def load_detector_thresholds(config_path: Path) -> tuple[int, int]:
-    default_min = int(os.getenv("PHASE_MIN_THRESHOLD", "6"))
-    default_max = int(os.getenv("PHASE_MAX_THRESHOLD", "7"))
+    default_min = PHASE_MIN_THRESHOLD_DEFAULT
+    default_max = PHASE_MAX_THRESHOLD_DEFAULT
     if not config_path.exists():
         logging.warning(
             "Detector config not found at %s; using defaults min=%s max=%s",
