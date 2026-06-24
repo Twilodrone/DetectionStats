@@ -101,8 +101,7 @@
   </head>
   <body>
     <header>
-      <!-- <h2 style="margin: 0 0 6px 0">Детектор 630</h2> -->
-      <h2 style="margin: 0 0 6px 0">Детектор 646</h2>
+      <h2 style="margin: 0 0 6px 0">Детектор {{ site_number }}</h2>
       <div class="tabs">
         <a class="tab active" href="/">Последнее срабатывание</a>
         <a class="tab" href="/archive">Архив срабатываний</a>
@@ -135,6 +134,7 @@
     <script>
       let lastRenderedEventId = null;
       const DISPLAY_TIMEZONE = 'Europe/Moscow';
+      const SOURCE_UI = {{ source_ui|tojson }};
 
       function formatDisplayDateTime(tsUtc) {
         if (!tsUtc) return '—';
@@ -168,25 +168,18 @@
 
         const triggerCam = event.payload.trigger_cam;
         const triggerSource = event.payload.trigger_source;
-        const titleBySource = {
-          pedestrian: 'Зафиксировано более {{ max }} человек',
-          wheelchair: 'Зафиксированы маломобильные',
-          child: 'Зафиксированы дети',
-        };
-        const sourceNameBySource = {
-          pedestrian: 'Пешеходы',
-          wheelchair: 'Маломобильные',
-          child: 'Дети',
-        };
+        const sourceUi = SOURCE_UI[triggerSource] ?? { label: triggerSource, trigger_title: 'Кадр-триггер' };
         const people = event.payload[`${triggerCam}_count`] ?? 0;
         const wheelchair = event.payload[`${triggerCam}_wheelchair_cnt`] ?? 0;
         const child = event.payload[`${triggerCam}_child_count`] ?? 0;
-        document.getElementById('triggerSectionTitle').textContent = titleBySource[triggerSource] ?? 'Кадр-триггер';
+        document.getElementById('triggerSectionTitle').textContent = sourceUi.trigger_title.replace(/\{\{\s*max\s*\}\}/g, '{{ max }}');
         const summary = document.createElement('div');
         summary.className = 'summary-card';
         summary.innerHTML = `
           <div><strong>${triggerCam}</strong></div>
-          <div>Источник: ${sourceNameBySource[triggerSource] ?? triggerSource}</div>
+          <div>Источник: ${sourceUi.label}</div>
+          <div>Redis-ключ: ${event.payload.trigger_key ?? event.payload.trigger_field ?? '—'}</div>
+          <div>Значение: ${event.payload.trigger_value ?? '—'}</div>
           <div>Людей: ${people}</div>
           <div>Маломобильные: ${wheelchair}</div>
           <div>Дети: ${child}</div>
@@ -197,7 +190,7 @@
           const triggerCard = document.createElement('div');
           triggerCard.className = 'card';
           triggerCard.innerHTML = `
-            <div class="camera-title">${triggerCam} · ${sourceNameBySource[triggerSource] ?? triggerSource}</div>
+            <div class="camera-title">${triggerCam} · ${sourceUi.label}</div>
             <img class="camera-image" src="/api/events/${event.id}/camera/${triggerSource}/${triggerCam}.jpg" alt="${triggerSource} ${triggerCam}" />
           `;
           latestTriggerImage.appendChild(triggerCard);

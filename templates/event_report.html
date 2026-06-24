@@ -82,7 +82,7 @@
       <div class="summary">
         <div><strong>Время:</strong> <span id="eventTime">—</span> <span class="muted">(UTC+3)</span></div>
         <div><strong>Signal:</strong> {{ event.signal_value }}</div>
-        {% if trigger_source in ["wheelchair", "child"] %}
+        {% if source_ui.get(trigger_source, {}).get('requires_accuracy_review', trigger_source != 'pedestrian') %}
         <div class="accuracy-box">
           <label>
             <input type="checkbox" id="accuracyCheckbox" {% if event.detection_accurate == 1 %}checked{% endif %} />
@@ -97,7 +97,9 @@
       <div class="summary-grid">
         <div class="summary">
           <div><strong>{{ trigger_cam }}</strong></div>
-          <div>Источник: {{ "Пешеходы" if trigger_source == "pedestrian" else ("Маломобильные" if trigger_source == "wheelchair" else "Дети") }}</div>
+          <div>Источник: {{ source_ui.get(trigger_source, {}).get('label', trigger_source) }}</div>
+          <div>Redis-ключ: {{ event.payload.get('trigger_key', event.payload.get('trigger_field', '—')) }}</div>
+          <div>Значение: {{ event.payload.get('trigger_value', '—') }}</div>
           <div>Людей: {{ event.payload.get(trigger_cam ~ '_count', 0) }}</div>
           <div>Маломобильные: {{ event.payload.get(trigger_cam ~ '_wheelchair_cnt', 0) }}</div>
           <div>Дети: {{ event.payload.get(trigger_cam ~ '_child_count', 0) }}</div>
@@ -105,11 +107,11 @@
       </div>
 
       <h3 class="section-title">
-        {{ "Зафиксировано более n человек" if trigger_source == "pedestrian" else ("Зафиксированы маломобильные" if trigger_source == "wheelchair" else "Зафиксированы дети") }}
+        {{ source_ui.get(trigger_source, {}).get('trigger_title', 'Кадр-триггер') | replace('{{ max }}', event.payload.get('max_threshold', '')) }}
       </h3>
       <div class="grid">
         <div class="card">
-          <div class="camera-title">{{ trigger_cam }} · {{ "Пешеходы" if trigger_source == "pedestrian" else ("Маломобильные" if trigger_source == "wheelchair" else "Дети") }}</div>
+          <div class="camera-title">{{ trigger_cam }} · {{ source_ui.get(trigger_source, {}).get('label', trigger_source) }}</div>
           <img class="camera-image" src="/api/events/{{ event.id }}/camera/{{ trigger_source }}/{{ trigger_cam }}.jpg" alt="Триггер {{ trigger_cam }}" />
         </div>
       </div>

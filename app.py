@@ -30,6 +30,11 @@ def parse_yaml_scalar(value: str) -> Any:
         return int(value)
     except ValueError:
         pass
+    lower_value = value.lower()
+    if lower_value == "true":
+        return True
+    if lower_value == "false":
+        return False
     try:
         return float(value)
     except ValueError:
@@ -148,6 +153,69 @@ def string_dict_config(section: dict[str, Any], key: str) -> dict[str, str]:
     return dict(value)
 
 
+def bool_config(section: dict[str, Any], key: str, default: bool) -> bool:
+    value = section.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"Config value '{key}' must be a boolean")
+    return value
+
+
+def optional_string_config(section: dict[str, Any], key: str, default: str) -> str:
+    value = section.get(key, default)
+    if not isinstance(value, str):
+        raise ValueError(f"Config value '{key}' must be a string")
+    return value
+
+
+def optional_path_config(section: dict[str, Any], key: str, default: Path | None = None) -> Path | None:
+    value = section.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise ValueError(f"Config value '{key}' must be a string")
+    return Path(value)
+
+
+def detection_fields_config(section: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw_fields = config_section(section, "fields")
+    fields: dict[str, dict[str, Any]] = {}
+    for field_name, raw_field in raw_fields.items():
+        if not isinstance(field_name, str) or not isinstance(raw_field, dict):
+            raise ValueError("Config value 'detection.fields' must be a mapping")
+        key = string_config(raw_field, "key")
+        cam = string_config(raw_field, "cam")
+        if cam not in CAM_KEYS:
+            raise ValueError(f"Detection field '{field_name}' uses unknown camera '{cam}'")
+        trigger_rule = string_config(raw_field, "trigger_rule")
+        if trigger_rule not in {"gt", "gte", "gt_config_threshold"}:
+            raise ValueError(
+                f"Detection field '{field_name}' has unsupported trigger_rule '{trigger_rule}'"
+            )
+        threshold_ref = optional_string_config(raw_field, "threshold_ref", "")
+        threshold_value = int_config(raw_field, "threshold") if "threshold" in raw_field else 0
+        if trigger_rule == "gt_config_threshold" and threshold_ref not in {"min", "max"}:
+            raise ValueError(
+                f"Detection field '{field_name}' with gt_config_threshold must use threshold_ref min/max"
+            )
+        fields[field_name] = {
+            "name": field_name,
+            "key": key,
+            "cam": cam,
+            "source": optional_string_config(raw_field, "source", field_name),
+            "label": optional_string_config(raw_field, "label", field_name),
+            "trigger_title": optional_string_config(raw_field, "trigger_title", "Кадр-триггер"),
+            "trigger_rule": trigger_rule,
+            "threshold": threshold_value,
+            "threshold_ref": threshold_ref,
+            "show_on_main": bool_config(raw_field, "show_on_main", False),
+            "save_to_archive": bool_config(raw_field, "save_to_archive", True),
+            "requires_auth": bool_config(raw_field, "requires_auth", True),
+            "triggers_event": bool_config(raw_field, "triggers_event", True),
+            "image_dir": optional_path_config(raw_field, "image_dir"),
+        }
+    return fields
+
+
 APP_CONFIG = load_yaml_config(CONFIG_PATH)
 REDIS_CONFIG = config_section(APP_CONFIG, "redis")
 PATHS_CONFIG = config_section(APP_CONFIG, "paths")
@@ -170,6 +238,7 @@ DETECTOR_CONFIG_PATH = path_config(PATHS_CONFIG, "detector_config_path")
 EVENT_ARCHIVE_DIR = path_config(PATHS_CONFIG, "event_archive_dir")
 WEB_HOST = string_config(WEB_CONFIG, "host")
 WEB_PORT = int_config(WEB_CONFIG, "port")
+SITE_NUMBER = int_config(WEB_CONFIG, "site_number")
 ARCHIVE_PASSWORD = string_config(WEB_CONFIG, "archive_password")
 SESSION_SECRET_KEY = string_config(WEB_CONFIG, "session_secret_key")
 RTSP_CONFIG_PATH = path_config(RTSP_CONFIG, "config_path")
@@ -179,11 +248,27 @@ CAM_IMAGE_FILENAMES = string_dict_config(CAMERAS_CONFIG, "image_filenames")
 REDIS_KEYS = string_list_config(DETECTION_CONFIG, "redis_keys")
 PHASE_MIN_THRESHOLD_DEFAULT = int_config(THRESHOLDS_CONFIG, "min")
 PHASE_MAX_THRESHOLD_DEFAULT = int_config(THRESHOLDS_CONFIG, "max")
+DETECTION_FIELDS = detection_fields_config(DETECTION_CONFIG)
 
 IMAGE_SOURCES = {
-    "pedestrian": PEDESTRIAN_PICTURES_DIR,
-    "wheelchair": WHEELCHAIR_PICTURES_DIR,
-    "child": CHILD_PICTURES_DIR,
+    field["source"]: field["image_dir"]
+    for field in DETECTION_FIELDS.values()
+    if field["image_dir"] is not None
+}
+SOURCE_UI_CONFIG = {
+    field["source"]: {
+        "label": field["label"],
+        "trigger_title": field["trigger_title"],
+        "requires_auth": field["requires_auth"],
+        "requires_accuracy_review": field["requires_auth"],
+    }
+    for field in DETECTION_FIELDS.values()
+}
+PUBLIC_TRIGGER_SOURCES = {
+    field["source"] for field in DETECTION_FIELDS.values() if not field["requires_auth"]
+}
+MAIN_TRIGGER_SOURCES = {
+    field["source"] for field in DETECTION_FIELDS.values() if field["show_on_main"]
 }
 
 def utc_now_iso() -> str:
@@ -353,12 +438,13 @@ class SignalRepository:
                 conn.commit()
                 return cur.rowcount > 0
 
-    def get_stats(self, trigger_source: str | None = None) -> dict[str, Any]:
+    def get_stats(self, trigger_sources: set[str] | None = None) -> dict[str, Any]:
         where_clause = ""
         params: tuple[Any, ...] = ()
-        if trigger_source:
-            where_clause = " WHERE payload_json LIKE ?"
-            params = (f'%"trigger_source": "{trigger_source}"%',)
+        if trigger_sources:
+            source_clauses = ["payload_json LIKE ?" for _ in trigger_sources]
+            where_clause = f" WHERE ({' OR '.join(source_clauses)})"
+            params = tuple(f'%"trigger_source": "{source}"%' for source in trigger_sources)
 
         with self._connect() as conn:
             total = conn.execute(
@@ -401,11 +487,9 @@ class RedisWatcher:
         self._archive_queue: Queue[tuple[int, str, str]] = Queue()
         self._last_snapshot: dict[str, int] = {key: 0 for key in REDIS_KEYS}
         self._last_redis_ok: bool = False
-        self._previous_people_overflow_by_cam: dict[str, bool] = {cam: False for cam in CAM_KEYS}
-        self._previous_wheelchair_present_by_cam: dict[str, bool] = {
-            cam: False for cam in CAM_KEYS
+        self._previous_trigger_state_by_field: dict[str, bool] = {
+            field_name: False for field_name in DETECTION_FIELDS
         }
-        self._previous_child_present_by_cam: dict[str, bool] = {cam: False for cam in CAM_KEYS}
 
     def start(self) -> None:
         self._thread.start()
@@ -491,32 +575,43 @@ class RedisWatcher:
             finally:
                 self._archive_queue.task_done()
 
-    def _create_single_camera_event(
-        self, values: dict[str, int], cam_name: str, source_name: str
-    ) -> None:
-        people_count = values.get(f"{cam_name}_count", 0)
-        wheelchair_count = values.get(f"{cam_name}_wheelchair_cnt", 0)
-        child_count = values.get(f"{cam_name}_child_count", 0)
-        event_payload = {
+    def _threshold_for_field(self, field: dict[str, Any]) -> int:
+        if field["trigger_rule"] == "gt_config_threshold":
+            return self.max_threshold if field["threshold_ref"] == "max" else self.min_threshold
+        return int(field["threshold"])
+
+    def _field_is_triggered(self, field: dict[str, Any], value: int) -> bool:
+        threshold = self._threshold_for_field(field)
+        if field["trigger_rule"] == "gt":
+            return value > threshold
+        if field["trigger_rule"] == "gte":
+            return value >= threshold
+        return value > threshold
+
+    def _create_field_event(self, values: dict[str, int], field: dict[str, Any]) -> None:
+        cam_name = field["cam"]
+        source_name = field["source"]
+        event_payload: dict[str, Any] = {
             "min_threshold": self.min_threshold,
             "max_threshold": self.max_threshold,
             "trigger_source": source_name,
+            "trigger_field": field["name"],
+            "trigger_key": field["key"],
             "trigger_cam": cam_name,
+            "trigger_label": field["label"],
             "Signal": values.get("Signal", 0),
-            f"{cam_name}_count": people_count,
-            f"{cam_name}_wheelchair_cnt": wheelchair_count,
-            f"{cam_name}_child_count": child_count,
-            "trigger_value": (
-                people_count
-                if source_name == "pedestrian"
-                else wheelchair_count if source_name == "wheelchair" else child_count
-            ),
+            field["key"]: values.get(field["key"], 0),
+            "trigger_value": values.get(field["key"], 0),
         }
+        for related_field in DETECTION_FIELDS.values():
+            if related_field["cam"] == cam_name:
+                event_payload[related_field["key"]] = values.get(related_field["key"], 0)
         event_id = self.repo.add_event(
             payload=event_payload,
             signal_value=values.get("Signal", 0),
         )
-        self._archive_queue.put((event_id, source_name, cam_name))
+        if field["save_to_archive"]:
+            self._archive_queue.put((event_id, source_name, cam_name))
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -525,28 +620,16 @@ class RedisWatcher:
                 self._last_snapshot = values
                 self._last_redis_ok = True
 
-                for cam_name in CAM_KEYS:
-                    people_count = values.get(f"{cam_name}_count", 0)
-                    wheelchair_count = values.get(f"{cam_name}_wheelchair_cnt", 0)
-                    child_count = values.get(f"{cam_name}_child_count", 0)
-                    people_overflow = people_count > self.max_threshold
-                    wheelchair_present = wheelchair_count > 0
-                    child_present = child_count > 0
-
-                    if people_overflow and not self._previous_people_overflow_by_cam[cam_name]:
-                        self._create_single_camera_event(values, cam_name, "pedestrian")
-
+                for field_name, field in DETECTION_FIELDS.items():
+                    value = values.get(field["key"], 0)
+                    triggered = self._field_is_triggered(field, value)
                     if (
-                        wheelchair_present
-                        and not self._previous_wheelchair_present_by_cam[cam_name]
+                        field["triggers_event"]
+                        and triggered
+                        and not self._previous_trigger_state_by_field[field_name]
                     ):
-                        self._create_single_camera_event(values, cam_name, "wheelchair")
-                    if child_present and not self._previous_child_present_by_cam[cam_name]:
-                        self._create_single_camera_event(values, cam_name, "child")
-
-                    self._previous_people_overflow_by_cam[cam_name] = people_overflow
-                    self._previous_wheelchair_present_by_cam[cam_name] = wheelchair_present
-                    self._previous_child_present_by_cam[cam_name] = child_present
+                        self._create_field_event(values, field)
+                    self._previous_trigger_state_by_field[field_name] = triggered
             except redis.RedisError:
                 self._last_redis_ok = False
             time.sleep(POLL_INTERVAL_SECONDS)
@@ -564,23 +647,23 @@ def is_archive_authenticated() -> bool:
     return bool(session.get("archive_authenticated", False))
 
 
-def event_is_pedestrian(event: dict[str, Any]) -> bool:
+def event_is_public(event: dict[str, Any]) -> bool:
     payload = event.get("payload", {})
-    return payload.get("trigger_source") == "pedestrian"
+    return payload.get("trigger_source") in PUBLIC_TRIGGER_SOURCES
 
 
 def require_archive_auth_for_event(event: dict[str, Any]) -> bool:
-    return is_archive_authenticated() or event_is_pedestrian(event)
+    return is_archive_authenticated() or event_is_public(event)
 
 
 @app.route("/")
 def index() -> str:
-    return render_template("index.html", cams=CAM_KEYS, max=MAX_THRESHOLD)
+    return render_template("index.html", cams=CAM_KEYS, max=MAX_THRESHOLD, site_number=SITE_NUMBER, source_ui=SOURCE_UI_CONFIG)
 
 
 @app.route("/archive")
 def archive() -> str:
-    return render_template("archive.html", archive_authenticated=is_archive_authenticated())
+    return render_template("archive.html", archive_authenticated=is_archive_authenticated(), site_number=SITE_NUMBER, detection_fields=DETECTION_FIELDS)
 
 
 @app.route("/api/archive-auth", methods=["POST"])
@@ -611,7 +694,7 @@ def api_archive_auth_status() -> Response:
 
 @app.route("/live")
 def live() -> str:
-    return render_template("live.html", cams=CAM_KEYS, streams=RTSP_STREAMS)
+    return render_template("live.html", cams=CAM_KEYS, streams=RTSP_STREAMS, site_number=SITE_NUMBER)
 
 
 @app.route("/events/<int:event_id>")
@@ -622,7 +705,7 @@ def event_report(event_id: int):
     if not require_archive_auth_for_event(event):
         return jsonify({"error": "Forbidden"}), 403
 
-    return render_template("event_report.html", event=event, cams=CAM_KEYS)
+    return render_template("event_report.html", event=event, cams=CAM_KEYS, source_ui=SOURCE_UI_CONFIG)
 
 
 @app.route("/cgi-bin/luci")
@@ -634,7 +717,7 @@ def luci_compat_redirect() -> Response:
 @app.route("/api/status")
 def api_status() -> Response:
     snapshot = watcher.get_snapshot()
-    stats = repo.get_stats(trigger_source="pedestrian")
+    stats = repo.get_stats(trigger_sources=MAIN_TRIGGER_SOURCES)
     return jsonify(
         {
             "timestamp_utc": utc_now_iso(),
@@ -648,21 +731,19 @@ def api_status() -> Response:
 @app.route("/api/events")
 def api_events() -> Response:
     limit = request.args.get("limit", default=50, type=int)
-    wheelchair_gt_zero = request.args.get("wheelchair_gt_zero", default=0, type=int) == 1
     any_cam_count_gt = request.args.get("any_cam_count_gt", type=int)
-    child_gt_zero = request.args.get("child_gt_zero", default=0, type=int) == 1
+    selected_fields = set(request.args.getlist("field"))
     trigger_source = request.args.get("trigger_source", type=str)
-    if not is_archive_authenticated():
-        trigger_source = "pedestrian"
+    allowed_sources = None if is_archive_authenticated() else PUBLIC_TRIGGER_SOURCES
     detection_accurate = request.args.get("detection_accurate", type=int)
 
     safe_limit = max(1, min(limit, 500))
     has_filters = any(
         [
-            wheelchair_gt_zero,
             any_cam_count_gt is not None,
-            child_gt_zero,
+            bool(selected_fields),
             bool(trigger_source),
+            allowed_sources is not None,
             detection_accurate in (0, 1),
         ]
     )
@@ -672,15 +753,20 @@ def api_events() -> Response:
     filtered_events: list[dict[str, Any]] = []
     for event in events:
         payload = event.get("payload", {})
-        total_wheelchair_cnt = sum(int(payload.get(f"{cam}_wheelchair_cnt", 0)) for cam in CAM_KEYS)
-        total_child_cnt = sum(int(payload.get(f"{cam}_child_count", 0)) for cam in CAM_KEYS)
-        any_cam_pedestrians = max(int(payload.get(f"{cam}_count", 0)) for cam in CAM_KEYS)
+        any_cam_pedestrians = max(
+            (
+                int(payload.get(field["key"], 0))
+                for field in DETECTION_FIELDS.values()
+                if field["source"] == "pedestrian"
+            ),
+            default=0,
+        )
 
-        if wheelchair_gt_zero and total_wheelchair_cnt <= 0:
+        if allowed_sources is not None and payload.get("trigger_source") not in allowed_sources:
             continue
         if any_cam_count_gt is not None and any_cam_pedestrians <= any_cam_count_gt:
             continue
-        if child_gt_zero and total_child_cnt <= 0:
+        if selected_fields and payload.get("trigger_field") not in selected_fields:
             continue
         if trigger_source and payload.get("trigger_source") != trigger_source:
             continue
@@ -707,14 +793,18 @@ def api_event_by_id(event_id: int) -> Response:
 def api_set_event_accuracy(event_id: int) -> Response:
     from flask import request
 
+    event = repo.get_event_by_id(event_id)
+    if event is None:
+        return jsonify({"error": "Event not found"}), 404
+    if not is_archive_authenticated():
+        return jsonify({"error": "Forbidden"}), 403
+
     body = request.get_json(silent=True) or {}
     detection_accurate = body.get("detection_accurate")
     if not isinstance(detection_accurate, bool):
         return jsonify({"error": "Field detection_accurate must be boolean"}), 400
 
-    updated = repo.set_detection_accurate(event_id, detection_accurate)
-    if not updated:
-        return jsonify({"error": "Event not found"}), 404
+    repo.set_detection_accurate(event_id, detection_accurate)
     return jsonify({"ok": True, "detection_accurate": 1 if detection_accurate else 0})
 
 
@@ -722,10 +812,11 @@ def api_set_event_accuracy(event_id: int) -> Response:
 def camera_image(source_name: str, cam_name: str):
     if cam_name not in CAM_KEYS:
         return jsonify({"error": "Unknown camera"}), 404
-    if source_name not in IMAGE_SOURCES:
+    image_source = IMAGE_SOURCES.get(source_name)
+    if image_source is None:
         return jsonify({"error": "Unknown image source"}), 404
 
-    image_path = IMAGE_SOURCES[source_name] / CAM_IMAGE_FILENAMES.get(cam_name, f"{cam_name}.jpg")
+    image_path = image_source / CAM_IMAGE_FILENAMES.get(cam_name, f"{cam_name}.jpg")
     return send_image_with_fallback(image_path)
 
 

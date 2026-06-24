@@ -20,6 +20,11 @@
       .filters { margin: 12px 0; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
       .filters label { display: flex; gap: 8px; align-items: center; font-size: 14px; }
       .filters input[type="number"] { width: 84px; background: #0b1220; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 4px 6px; }
+      .field-menu { position: relative; }
+      .field-menu summary { cursor: pointer; list-style: none; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; }
+      .field-menu summary::-webkit-details-marker { display: none; }
+      .field-options { position: absolute; z-index: 10; top: 38px; left: 0; min-width: 260px; max-height: 320px; overflow: auto; background: #111827; border: 1px solid #334155; border-radius: 8px; padding: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+      .field-options label { display: flex; margin: 6px 0; }
       th, td { border-bottom: 1px solid #1f2937; padding: 8px; text-align: left; font-size: 13px; }
       tbody tr { cursor: pointer; }
       tbody tr:hover { background: #1e293b; }
@@ -27,8 +32,7 @@
   </head>
   <body>
     <header>
-      <h2 style="margin: 0 0 6px 0">Архив 646</h2>
-      <!-- <h2 style="margin: 0 0 6px 0">Архив 630</h2> -->
+      <h2 style="margin: 0 0 6px 0">Архив {{ site_number }}</h2>
       <div class="tabs">
         <a class="tab" href="/">Последнее срабатывание</a>
         <a class="tab active" href="/archive">Архив срабатываний</a>
@@ -47,14 +51,20 @@
     <div class="panel">
       <h3>Последние срабатывания</h3>
       <div class="filters">
-        <label><input type="checkbox" id="filterWheelchairGtZero" /> Маломобильные &gt; 0</label>
-        <label><input type="checkbox" id="filterChildGtZero" /> Дети &gt; 0</label>
+        <details class="field-menu">
+          <summary>Поля Redis</summary>
+          <div class="field-options">
+            {% for field_name, field in detection_fields.items() %}
+            <label><input type="checkbox" class="field-filter" value="{{ field_name }}" /> {{ field.label }} · {{ field.key }}</label>
+            {% endfor %}
+          </div>
+        </details>
         <label><input type="checkbox" id="filterDetectionAccurate" /> Детекция точна</label>
         <label>Пешеходы на любой из камер &gt; <input type="number" id="filterAnyCamCountGt" min="0" step="1" placeholder="n" /></label>
       </div>
       <table>
         <thead>
-          <tr><th>ID</th><th>Время</th><th>Cam1</th><th>Cam2</th><th>Cam3</th><th>Cam4</th><th>Маломобильные</th><th>Дети</th><th>Детекция точна</th></tr>
+          <tr><th>ID</th><th>Время</th><th>Камера</th><th>Источник</th><th>Redis-ключ</th><th>Значение</th><th>Детекция точна</th></tr>
         </thead>
         <tbody id="eventsBody"></tbody>
       </table>
@@ -81,8 +91,7 @@
       function buildEventsUrl() {
         const params = new URLSearchParams();
         params.set('limit', '50');
-        if (document.getElementById('filterWheelchairGtZero').checked) params.set('wheelchair_gt_zero', '1');
-        if (document.getElementById('filterChildGtZero').checked) params.set('child_gt_zero', '1');
+        for (const checkbox of document.querySelectorAll('.field-filter:checked')) params.append('field', checkbox.value);
         if (document.getElementById('filterDetectionAccurate').checked) params.set('detection_accurate', '1');
         const anyCamCountGtRaw = document.getElementById('filterAnyCamCountGt').value;
         if (anyCamCountGtRaw !== '') params.set('any_cam_count_gt', String(Math.max(0, Number(anyCamCountGtRaw) || 0)));
@@ -95,15 +104,9 @@
         const body = document.getElementById('eventsBody');
         body.innerHTML = '';
         for (const event of data.events) {
-          const cam1 = event.payload.Cam1_count ?? 0;
-          const cam2 = event.payload.Cam2_count ?? 0;
-          const cam3 = event.payload.Cam3_count ?? 0;
-          const cam4 = event.payload.Cam4_count ?? 0;
-          const wheelchairTotal = (event.payload.Cam1_wheelchair_cnt ?? 0) + (event.payload.Cam2_wheelchair_cnt ?? 0) + (event.payload.Cam3_wheelchair_cnt ?? 0) + (event.payload.Cam4_wheelchair_cnt ?? 0);
-          const childTotal = (event.payload.Cam1_child_count ?? 0) + (event.payload.Cam2_child_count ?? 0) + (event.payload.Cam3_child_count ?? 0) + (event.payload.Cam4_child_count ?? 0);
           const detectionAccurateText = event.detection_accurate === 1 ? 'Да' : (event.detection_accurate === 0 ? 'Нет' : '—');
           const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${event.id}</td><td>${formatDisplayDateTime(event.ts_utc)}</td><td>${cam1}</td><td>${cam2}</td><td>${cam3}</td><td>${cam4}</td><td>${wheelchairTotal}</td><td>${childTotal}</td><td>${detectionAccurateText}</td>`;
+          tr.innerHTML = `<td>${event.id}</td><td>${formatDisplayDateTime(event.ts_utc)}</td><td>${event.payload.trigger_cam ?? '—'}</td><td>${event.payload.trigger_label ?? event.payload.trigger_source ?? '—'}</td><td>${event.payload.trigger_key ?? event.payload.trigger_field ?? '—'}</td><td>${event.payload.trigger_value ?? '—'}</td><td>${detectionAccurateText}</td>`;
           tr.addEventListener('click', () => { window.location.href = `/events/${event.id}`; });
           body.appendChild(tr);
         }
@@ -125,10 +128,13 @@
         await refreshEvents();
       });
 
-      ['filterWheelchairGtZero','filterChildGtZero','filterDetectionAccurate'].forEach((id) => {
+      ['filterDetectionAccurate'].forEach((id) => {
         document.getElementById(id).addEventListener('change', () => refreshEvents().catch((e) => console.error('Refresh error', e)));
       });
       document.getElementById('filterAnyCamCountGt').addEventListener('input', () => refreshEvents().catch((e) => console.error('Refresh error', e)));
+      document.querySelectorAll('.field-filter').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => refreshEvents().catch((e) => console.error('Refresh error', e)));
+      });
 
       setAuthUiState();
       refreshEvents();

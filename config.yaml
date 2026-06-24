@@ -16,6 +16,7 @@ paths:
 web:
   host: 0.0.0.0
   port: 8080
+  site_number: 646
   archive_password: ""
   session_secret_key: change-me
 
@@ -53,3 +54,160 @@ detection:
     - Cam2_child_count
     - Cam3_child_count
     - Cam4_child_count
+  fields:
+    Cam1_count:
+      key: Cam1_count
+      cam: Cam1
+      source: pedestrian
+      label: Пешеходы
+      trigger_title: Зафиксировано более {{ max }} человек
+      trigger_rule: gt_config_threshold
+      threshold_ref: max
+      show_on_main: true
+      save_to_archive: true
+      requires_auth: false
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam2_count:
+      key: Cam2_count
+      cam: Cam2
+      source: pedestrian
+      label: Пешеходы
+      trigger_title: Зафиксировано более {{ max }} человек
+      trigger_rule: gt_config_threshold
+      threshold_ref: max
+      show_on_main: true
+      save_to_archive: true
+      requires_auth: false
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam3_count:
+      key: Cam3_count
+      cam: Cam3
+      source: pedestrian
+      label: Пешеходы
+      trigger_title: Зафиксировано более {{ max }} человек
+      trigger_rule: gt_config_threshold
+      threshold_ref: max
+      show_on_main: true
+      save_to_archive: true
+      requires_auth: false
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam4_count:
+      key: Cam4_count
+      cam: Cam4
+      source: pedestrian
+      label: Пешеходы
+      trigger_title: Зафиксировано более {{ max }} человек
+      trigger_rule: gt_config_threshold
+      threshold_ref: max
+      show_on_main: true
+      save_to_archive: true
+      requires_auth: false
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam1_wheelchair_cnt:
+      key: Cam1_wheelchair_cnt
+      cam: Cam1
+      source: wheelchair
+      label: Маломобильные
+      trigger_title: Зафиксированы маломобильные
+      trigger_rule: gt
+      threshold: 0
+      show_on_main: false
+      save_to_archive: true
+      requires_auth: true
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam2_wheelchair_cnt:
+      key: Cam2_wheelchair_cnt
+      cam: Cam2
+      source: wheelchair
+      label: Маломобильные
+      trigger_title: Зафиксированы маломобильные
+      trigger_rule: gt
+      threshold: 0
+      show_on_main: false
+      save_to_archive: true
+      requires_auth: true
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam3_wheelchair_cnt:
+      key: Cam3_wheelchair_cnt
+      cam: Cam3
+      source: wheelchair
+      label: Маломобильные
+      trigger_title: Зафиксированы маломобильные
+      trigger_rule: gt
+      threshold: 0
+      show_on_main: false
+      save_to_archive: true
+      requires_auth: true
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam4_wheelchair_cnt:
+      key: Cam4_wheelchair_cnt
+      cam: Cam4
+      source: wheelchair
+      label: Маломобильные
+      trigger_title: Зафиксированы маломобильные
+      trigger_rule: gt
+      threshold: 0
+      show_on_main: false
+      save_to_archive: true
+      requires_auth: true
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam1_child_count:
+      key: Cam1_child_count
+      cam: Cam1
+      source: child
+      label: Дети
+      trigger_title: Зафиксированы дети
+      trigger_rule: gt
+      threshold: 0
+      show_on_main: false
+      save_to_archive: true
+      requires_auth: true
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam2_child_count:
+      key: Cam2_child_count
+      cam: Cam2
+      source: child
+      label: Дети
+      trigger_title: Зафиксированы дети
+      trigger_rule: gt
+      threshold: 0
+      show_on_main: false
+      save_to_archive: true
+      requires_auth: true
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam3_child_count:
+      key: Cam3_child_count
+      cam: Cam3
+      source: child
+      label: Дети
+      trigger_title: Зафиксированы дети
+      trigger_rule: gt
+      threshold: 0
+      show_on_main: false
+      save_to_archive: true
+      requires_auth: true
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
+    Cam4_child_count:
+      key: Cam4_child_count
+      cam: Cam4
+      source: child
+      label: Дети
+      trigger_title: Зафиксированы дети
+      trigger_rule: gt
+      threshold: 0
+      show_on_main: false
+      save_to_archive: true
+      requires_auth: true
+      triggers_event: true
+      image_dir: /home/sdp/tracker.dist/outputs
